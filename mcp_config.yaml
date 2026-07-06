@@ -11,13 +11,21 @@ transport:
   host: 0.0.0.0
   port: 8000
 
-# ── RouterAI / LLM ─────────────────────────────────────────────────────────
+# ── LLM Provider ────────────────────────────────────────────────────────────
 llm:
+  provider: "routerai"          # "routerai" | "ollama"
   base_url: "https://routerai.ru/api/v1"
   embedding_model: "baai/bge-m3"
   chat_model: "deepseek/deepseek-v4-flash"
   temperature: 0.3
   max_tokens: 4096
+
+# ── Ollama (локальный LLM, альтернатива RouterAI) ──────────────────────────
+# Используется когда llm.provider = "ollama"
+ollama:
+  base_url: "http://localhost:11434"
+  embedding_model: "nomic-embed-text"
+  chat_model: "qwen2.5-coder:7b"
 
 # ── Qdrant Vector DB ────────────────────────────────────────────────────────
 qdrant:

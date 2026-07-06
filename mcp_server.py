@@ -54,11 +54,17 @@ def _load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "transport": {"mode": "stdio", "host": "0.0.0.0", "port": 8000},
         "llm": {
+            "provider": "routerai",
             "base_url": "https://routerai.ru/api/v1",
             "embedding_model": "baai/bge-m3",
             "chat_model": "deepseek/deepseek-v4-flash",
             "temperature": 0.3,
             "max_tokens": 4096,
+        },
+        "ollama": {
+            "base_url": "http://localhost:11434",
+            "embedding_model": "nomic-embed-text",
+            "chat_model": "qwen2.5-coder:7b",
         },
         "qdrant": {
             "url": "http://localhost:6333",
@@ -99,9 +105,13 @@ def _load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
         "transport.mode": ("MCP_TRANSPORT", None),
         "transport.host": ("MCP_HOST", None),
         "transport.port": ("MCP_PORT", int),
+        "llm.provider": ("LLM_PROVIDER", None),
         "llm.base_url": ("ROUTERAI_BASE_URL", None),
         "llm.embedding_model": ("EMBEDDING_MODEL", None),
         "llm.chat_model": ("LLM_MODEL", None),
+        "ollama.base_url": ("OLLAMA_BASE_URL", None),
+        "ollama.embedding_model": ("OLLAMA_EMBEDDING_MODEL", None),
+        "ollama.chat_model": ("OLLAMA_CHAT_MODEL", None),
         "qdrant.url": ("QDRANT_URL", None),
         "http_client.timeout_seconds": ("HTTP_TIMEOUT", int),
         "output.character_limit": ("CHARACTER_LIMIT", int),
@@ -234,15 +244,22 @@ def _get_http() -> httpx.AsyncClient:
     return _http_client
 
 
-async def _get_embedding(text: str) -> list[float]:
-    """Get embedding vector from RouterAI with retry."""
+def _llm_provider() -> str:
+    """Get configured LLM provider (routerai | ollama)."""
+    return _get_cfg("llm", "provider", default="routerai")
+
+
+# ─── RouterAI helpers ───────────────────────────────────────────────────────
+
+async def _routerai_embedding(text: str) -> list[float]:
+    """Get embedding from RouterAI."""
     client = _get_http()
     url = f"{_get_cfg('llm', 'base_url').rstrip('/')}/embeddings"
     model = _get_cfg("llm", "embedding_model", default="baai/bge-m3")
+    api_key = os.environ.get("ROUTERAI_API_KEY", "")
     max_retries = _get_cfg("http_client", "max_retries", default=3)
     delay = _get_cfg("http_client", "retry_delay_seconds", default=1.0)
     backoff = _get_cfg("http_client", "retry_backoff_factor", default=2.0)
-    api_key = os.environ.get("ROUTERAI_API_KEY", "")
 
     async def _do():
         resp = await client.post(
@@ -256,7 +273,7 @@ async def _get_embedding(text: str) -> list[float]:
     return await _retry_async(_do, max_retries=max_retries, base_delay=delay, backoff=backoff)
 
 
-async def _llm_chat(
+async def _routerai_chat(
     messages: list[dict], system: str = "", temperature: Optional[float] = None
 ) -> str:
     """Call RouterAI LLM with retry."""
@@ -266,10 +283,10 @@ async def _llm_chat(
     if temperature is None:
         temperature = _get_cfg("llm", "temperature", default=0.3)
     max_tokens = _get_cfg("llm", "max_tokens", default=4096)
+    api_key = os.environ.get("ROUTERAI_API_KEY", "")
     max_retries = _get_cfg("http_client", "max_retries", default=3)
     delay = _get_cfg("http_client", "retry_delay_seconds", default=1.0)
     backoff = _get_cfg("http_client", "retry_backoff_factor", default=2.0)
-    api_key = os.environ.get("ROUTERAI_API_KEY", "")
 
     msgs: list[dict] = []
     if system:
@@ -286,6 +303,61 @@ async def _llm_chat(
         return resp.json()["choices"][0]["message"]["content"]
 
     return await _retry_async(_do, max_retries=max_retries, base_delay=delay, backoff=backoff)
+
+
+# ─── Ollama helpers ─────────────────────────────────────────────────────────
+
+async def _ollama_embedding(text: str) -> list[float]:
+    """Get embedding from local Ollama."""
+    client = _get_http()
+    base = _get_cfg("ollama", "base_url", default="http://localhost:11434")
+    model = _get_cfg("ollama", "embedding_model", default="nomic-embed-text")
+    resp = await client.post(
+        f"{base.rstrip('/')}/api/embed",
+        json={"model": model, "input": text},
+    )
+    resp.raise_for_status()
+    return resp.json()["embeddings"][0]
+
+
+async def _ollama_chat(
+    messages: list[dict], system: str = "", temperature: Optional[float] = None
+) -> str:
+    """Call local Ollama LLM (non-streaming)."""
+    client = _get_http()
+    base = _get_cfg("ollama", "base_url", default="http://localhost:11434")
+    model = _get_cfg("ollama", "chat_model", default="qwen2.5-coder:7b")
+    temp = temperature if temperature is not None else _get_cfg("llm", "temperature", default=0.3)
+
+    msgs: list[dict] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.extend(messages)
+
+    resp = await client.post(
+        f"{base.rstrip('/')}/api/chat",
+        json={"model": model, "messages": msgs, "options": {"temperature": temp}},
+    )
+    resp.raise_for_status()
+    return resp.json()["message"]["content"]
+
+
+# ─── Dispatchers ────────────────────────────────────────────────────────────
+
+async def _get_embedding(text: str) -> list[float]:
+    """Get embedding vector — dispatches to RouterAI or Ollama based on provider config."""
+    if _llm_provider() == "ollama":
+        return await _ollama_embedding(text)
+    return await _routerai_embedding(text)
+
+
+async def _llm_chat(
+    messages: list[dict], system: str = "", temperature: Optional[float] = None
+) -> str:
+    """Call LLM — dispatches to RouterAI or Ollama based on provider config."""
+    if _llm_provider() == "ollama":
+        return await _ollama_chat(messages, system=system, temperature=temperature)
+    return await _routerai_chat(messages, system=system, temperature=temperature)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -749,8 +821,8 @@ async def rvtdocs_cross_version_search(
 )
 async def analyze_results(query: str, context: str, instructions: str = "") -> str:
     """Use RouterAI LLM to analyze Qdrant/rvtdocs search results."""
-    if not os.environ.get("ROUTERAI_API_KEY"):
-        return _format_error("ROUTERAI_API_KEY not set")
+    if _llm_provider() != "ollama" and not os.environ.get("ROUTERAI_API_KEY"):
+        return _format_error("ROUTERAI_API_KEY not set (or set LLM_PROVIDER=ollama)")
     try:
         system = (
             "You are a Revit API and Navisworks API research assistant. "
@@ -787,8 +859,8 @@ async def analyze_results(query: str, context: str, instructions: str = "") -> s
 )
 async def research(query: str, revit_version: str = "2024") -> str:
     """Complete research pipeline: Qdrant → rvtdocs (current + all past versions) → LLM analysis."""
-    if not os.environ.get("ROUTERAI_API_KEY"):
-        return _format_error("ROUTERAI_API_KEY not set for LLM analysis. Qdrant search still works.")
+    if _llm_provider() != "ollama" and not os.environ.get("ROUTERAI_API_KEY"):
+        return _format_error("ROUTERAI_API_KEY not set for LLM analysis (or set LLM_PROVIDER=ollama). Qdrant search still works.")
 
     try:
         qdrant_results = json.loads(
@@ -899,14 +971,22 @@ async def _amain(argv: Optional[list[str]] = None) -> None:
 
     _logger.info("🚀 Starting RevitNavis MCP server (transport=%s)", transport)
     _logger.info("   Qdrant: %s", _get_cfg("qdrant", "url", default="http://localhost:6333"))
-    _logger.info("   RouterAI base: %s", _get_cfg("llm", "base_url"))
-    _logger.info("   Models: embed=%s, llm=%s", _get_cfg("llm", "embedding_model"), _get_cfg("llm", "chat_model"))
+    _logger.info("   LLM provider: %s", _llm_provider())
 
-    api_key = os.environ.get("ROUTERAI_API_KEY", "")
-    if not api_key or api_key in ("sk-placeholder", "sk-your-key-here"):
-        _logger.warning("ROUTERAI_API_KEY not set or is a placeholder — LLM tools will fail")
+    if _llm_provider() == "ollama":
+        _logger.info("   Ollama: %s | embed=%s, chat=%s",
+            _get_cfg("ollama", "base_url"),
+            _get_cfg("ollama", "embedding_model"),
+            _get_cfg("ollama", "chat_model"),
+        )
     else:
-        _logger.info("   RouterAI API key: OK")
+        _logger.info("   RouterAI base: %s", _get_cfg("llm", "base_url"))
+        _logger.info("   Models: embed=%s, llm=%s", _get_cfg("llm", "embedding_model"), _get_cfg("llm", "chat_model"))
+        api_key = os.environ.get("ROUTERAI_API_KEY", "")
+        if not api_key or api_key in ("sk-placeholder", "sk-your-key-here"):
+            _logger.warning("ROUTERAI_API_KEY not set or is a placeholder — LLM tools will fail")
+        else:
+            _logger.info("   RouterAI API key: OK")
 
     if transport == "sse":
         _logger.info("   SSE mode on http://%s:%d/mcp", host, port)

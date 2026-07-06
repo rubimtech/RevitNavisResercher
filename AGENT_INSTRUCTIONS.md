@@ -179,7 +179,8 @@ Agent:
 - **LLM лимит**: ответы обрезаются после ~25000 символов
 - **Qdrant score**: значения ниже 0.5 обычно нерелевантны
 - **rvtdocs.com**: доступны версии Revit 2021–2027
-- **API-ключ**: если `ROUTERAI_API_KEY` не задан, `research` и `analyze` не работают, но Qdrant поиск доступен
+- **API-ключ**: если `ROUTERAI_API_KEY` не задан, `research` и `analyze` не работают, но Qdrant поиск доступен.
+  Чтобы использовать локальный LLM без API-ключа — установите `LLM_PROVIDER=ollama` в `.env`.
 
 ---
 
@@ -218,6 +219,28 @@ qdrant_get_point(collection="revit_api_knowledge", point_id=1)
 # Поиск по всем версиям Revit
 rvtdocs_cross_version_search(query="Wall.Create")
 ```
+
+---
+
+## 🦙 Локальный режим с Ollama
+
+Для работы без API-ключа можно использовать локальную Ollama:
+
+```bash
+# Установить модели
+ollama pull nomic-embed-text
+ollama pull qwen2.5-coder:7b
+```
+
+Настроить `.env`:
+
+```
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+После этого все инструменты (`research`, `analyze`) работают через локальную Ollama.
+Ollama должна быть запущена (`ollama serve`) до старта сервера.
 
 ---
 

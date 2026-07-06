@@ -80,10 +80,14 @@ docker compose --env-file .env up -d
 
 | Переменная | По умолчанию | Описание |
 |-----------|-------------|----------|
-| `ROUTERAI_API_KEY` | — | API-ключ RouterAI **(обязательно)** |
+| `ROUTERAI_API_KEY` | — | API-ключ RouterAI **(обязательно для routerai)** |
 | `ROUTERAI_BASE_URL` | `https://routerai.ru/api/v1` | Базовый URL RouterAI |
-| `EMBEDDING_MODEL` | `baai/bge-m3` | Модель эмбеддингов |
-| `LLM_MODEL` | `deepseek/deepseek-v4-flash` | Модель LLM для анализа |
+| `EMBEDDING_MODEL` | `baai/bge-m3` | Модель эмбеддингов (RouterAI) |
+| `LLM_MODEL` | `deepseek/deepseek-v4-flash` | Модель LLM для анализа (RouterAI) |
+| `LLM_PROVIDER` | `routerai` | Провайдер LLM: `routerai` или `ollama` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | URL локальной Ollama |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Модель эмбеддингов Ollama |
+| `OLLAMA_CHAT_MODEL` | `qwen2.5-coder:7b` | Модель LLM Ollama |
 | `QDRANT_URL` | `http://localhost:6333` | URL Qdrant |
 | `MCP_TRANSPORT` | `stdio` | Транспорт: `stdio` или `sse` |
 | `MCP_HOST` | `0.0.0.0` | Хост для SSE-режима |
@@ -101,7 +105,36 @@ docker compose --env-file .env up -d
 
 ---
 
-## 🐳 Docker Compose
+## 🦙 Локальный режим с Ollama
+
+Для работы без API-ключа можно использовать локальную [Ollama](https://ollama.com):
+
+```bash
+# Установить Ollama (один раз)
+winget install Ollama.Ollama  # Windows
+# или скачать с https://ollama.com/download
+
+# Запустить Ollama
+ollama serve
+
+# В другом терминале — скачать модели
+ollama pull nomic-embed-text     # для эмбеддингов
+ollama pull qwen2.5-coder:7b     # для LLM (~4.7 ГБ)
+```
+
+Настроить `.env`:
+
+```
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_CHAT_MODEL=qwen2.5-coder:7b
+# ROUTERAI_API_KEY можно не указывать
+```
+
+После этого `research`, `analyze` и Web App будут работать через локальную Ollama.
+
+> **Важно:** Ollama должна быть запущена (`ollama serve`) до старта MCP-сервера или Web App.
 
 Файл `docker-compose.yml` поднимает:
 - **MCP-сервер** — на порту `8000` (SSE-режим)

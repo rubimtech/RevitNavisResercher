@@ -73,11 +73,17 @@ def _load_config() -> dict[str, Any]:
     cfg_path = Path(__file__).parent / "mcp_config.yaml"
     cfg: dict[str, Any] = {
         "llm": {
+            "provider": "routerai",
             "base_url": "https://routerai.ru/api/v1",
             "embedding_model": "baai/bge-m3",
             "chat_model": "deepseek/deepseek-v4-flash",
             "temperature": 0.3,
             "max_tokens": 4096,
+        },
+        "ollama": {
+            "base_url": "http://localhost:11434",
+            "embedding_model": "nomic-embed-text",
+            "chat_model": "qwen2.5-coder:7b",
         },
         "qdrant": {"url": "http://localhost:6333"},
         "http_client": {"timeout_seconds": 60, "max_retries": 3, "retry_delay_seconds": 1.0, "retry_backoff_factor": 2.0},
@@ -90,9 +96,13 @@ def _load_config() -> dict[str, Any]:
             _deep_merge(cfg, yaml_cfg)
 
     env_overrides: dict[str, tuple[str, Optional[type]]] = {
+        "llm.provider": ("LLM_PROVIDER", None),
         "llm.base_url": ("ROUTERAI_BASE_URL", None),
         "llm.embedding_model": ("EMBEDDING_MODEL", None),
         "llm.chat_model": ("LLM_MODEL", None),
+        "ollama.base_url": ("OLLAMA_BASE_URL", None),
+        "ollama.embedding_model": ("OLLAMA_EMBEDDING_MODEL", None),
+        "ollama.chat_model": ("OLLAMA_CHAT_MODEL", None),
         "qdrant.url": ("QDRANT_URL", None),
         "http_client.timeout_seconds": ("HTTP_TIMEOUT", int),
         "output.character_limit": ("CHARACTER_LIMIT", int),
@@ -119,6 +129,11 @@ def _get_cfg(*keys: str, default: Any = None) -> Any:
     return current if current is not None else default
 
 
+def _llm_provider() -> str:
+    """Get configured LLM provider."""
+    return _get_cfg("llm", "provider", default="routerai")
+
+
 def _get_qdrant() -> AsyncQdrantClient:
     global _qdrant
     if _qdrant is None:
@@ -140,6 +155,22 @@ async def _get_embedding(text: str) -> list[float]:
     cached = _cache_get(key)
     if cached:
         return cached
+
+    if _llm_provider() == "ollama":
+        result = await _ollama_embedding(text)
+        _cache_set(key, result)
+        return result
+
+    result = await _routerai_embedding(text)
+    _cache_set(key, result)
+    return result
+
+
+async def _routerai_embedding(text: str) -> list[float]:
+    key = f"emb:{text}"
+    cached = _cache_get(key)
+    if cached:
+        return cached
     client = _get_http()
     url = f"{_get_cfg('llm', 'base_url').rstrip('/')}/embeddings"
     model = _get_cfg("llm", "embedding_model", default="baai/bge-m3")
@@ -154,6 +185,19 @@ async def _get_embedding(text: str) -> list[float]:
     return result
 
 
+async def _ollama_embedding(text: str) -> list[float]:
+    """Get embedding from local Ollama."""
+    client = _get_http()
+    base = _get_cfg("ollama", "base_url", default="http://localhost:11434")
+    model = _get_cfg("ollama", "embedding_model", default="nomic-embed-text")
+    resp = await client.post(
+        f"{base.rstrip('/')}/api/embed",
+        json={"model": model, "input": text},
+    )
+    resp.raise_for_status()
+    return resp.json()["embeddings"][0]
+
+
 async def _llm_chat_full(messages: list[dict], system: str = "") -> str:
     full = ""
     async for chunk in _llm_chat_stream(messages, system):
@@ -162,6 +206,15 @@ async def _llm_chat_full(messages: list[dict], system: str = "") -> str:
 
 
 async def _llm_chat_stream(messages: list[dict], system: str = ""):
+    if _llm_provider() == "ollama":
+        async for chunk in _ollama_chat_stream(messages, system):
+            yield chunk
+        return
+    async for chunk in _routerai_chat_stream(messages, system):
+        yield chunk
+
+
+async def _routerai_chat_stream(messages: list[dict], system: str = ""):
     client = _get_http()
     url = f"{_get_cfg('llm', 'base_url').rstrip('/')}/chat/completions"
     model = _get_cfg("llm", "chat_model", default="deepseek/deepseek-v4-flash")
@@ -201,6 +254,45 @@ async def _llm_chat_stream(messages: list[dict], system: str = ""):
         _cache_set(key, full_text)
 
 
+async def _ollama_chat_stream(messages: list[dict], system: str = ""):
+    """Stream from local Ollama."""
+    client = _get_http()
+    base = _get_cfg("ollama", "base_url", default="http://localhost:11434")
+    model = _get_cfg("ollama", "chat_model", default="qwen2.5-coder:7b")
+    temperature = _get_cfg("llm", "temperature", default=0.3)
+    msgs: list[dict] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.extend(messages)
+
+    key = f"ollama:{model}:{system}:{messages}"
+    cached = _cache_get(key)
+    if cached:
+        yield cached
+        return
+
+    full_text = ""
+    async with client.stream(
+        "POST", f"{base.rstrip('/')}/api/chat",
+        json={"model": model, "messages": msgs, "options": {"temperature": temperature}, "stream": True},
+    ) as resp:
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                content = data.get("message", {}).get("content", "")
+                if content:
+                    full_text += content
+                    yield content
+                if data.get("done"):
+                    break
+            except json.JSONDecodeError:
+                continue
+    _cache_set(key, full_text)
+
+
 def _truncate(text: str, limit: int = 600) -> str:
     return text[:limit] + "..." if len(text) > limit else text
 
@@ -224,7 +316,19 @@ async def lifespan(app: FastAPI):
     config = _load_config()
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
     _logger = logging.getLogger("revitnavis-web")
+    provider = _llm_provider()
     _logger.info("Web App config loaded. Qdrant: %s", _get_cfg("qdrant", "url"))
+    _logger.info("LLM provider: %s", provider)
+    if provider == "ollama":
+        _logger.info("Ollama: %s | embed=%s, chat=%s",
+            _get_cfg("ollama", "base_url"),
+            _get_cfg("ollama", "embedding_model"),
+            _get_cfg("ollama", "chat_model"),
+        )
+    else:
+        _logger.info("Models: embed=%s, llm=%s", _get_cfg("llm", "embedding_model"), _get_cfg("llm", "chat_model"))
+        if not os.environ.get("ROUTERAI_API_KEY"):
+            _logger.warning("ROUTERAI_API_KEY not set — LLM endpoints will fail")
     yield
     global _qdrant, _http
     if _qdrant:
@@ -254,6 +358,7 @@ async def index():
 
 @app.get("/api/config")
 async def api_config():
+    provider = _llm_provider()
     return {
         "collections": [
             {"name": "revit_api_knowledge", "label": "Revit API"},
@@ -261,8 +366,10 @@ async def api_config():
             {"name": "navisworks_api_bge", "label": "Navisworks API"},
         ],
         "revit_versions": ["2021", "2022", "2023", "2024", "2025", "2026", "2027"],
-        "llm_model": _get_cfg("llm", "chat_model"),
-        "embedding_model": _get_cfg("llm", "embedding_model"),
+        "llm_provider": provider,
+        "llm_model": _get_cfg("ollama" if provider == "ollama" else "llm", "chat_model"),
+        "embedding_model": _get_cfg("ollama" if provider == "ollama" else "llm", "embedding_model"),
+        "has_api_key": bool(os.environ.get("ROUTERAI_API_KEY")),
     }
 
 
@@ -397,8 +504,8 @@ async def _build_context(req: SearchRequest) -> tuple[dict, dict, str]:
 
 @app.post("/api/research")
 async def research(req: SearchRequest):
-    if not os.environ.get("ROUTERAI_API_KEY"):
-        raise HTTPException(400, "ROUTERAI_API_KEY not set")
+    if _llm_provider() != "ollama" and not os.environ.get("ROUTERAI_API_KEY"):
+        raise HTTPException(400, "ROUTERAI_API_KEY not set (or set LLM_PROVIDER=ollama)")
     try:
         qdrant_results, rvtdocs_results, context = await _build_context(req)
 
@@ -429,8 +536,8 @@ async def research(req: SearchRequest):
 @app.post("/api/research/stream")
 async def research_stream(req: SearchRequest):
     """SSE endpoint: Qdrant → rvtdocs → streaming LLM ответ."""
-    if not os.environ.get("ROUTERAI_API_KEY"):
-        raise HTTPException(400, "ROUTERAI_API_KEY not set")
+    if _llm_provider() != "ollama" and not os.environ.get("ROUTERAI_API_KEY"):
+        raise HTTPException(400, "ROUTERAI_API_KEY not set (or set LLM_PROVIDER=ollama)")
 
     async def _event_stream():
         try:

@@ -37,6 +37,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application files
 COPY mcp_server.py .
 COPY mcp_config.yaml .
+COPY .env .env
 COPY revit_codebase.db .
 
 # Ownership for non-root user
@@ -48,9 +49,9 @@ USER revitnavis
 # Port for SSE transport (optional, stdio is default)
 EXPOSE 8000
 
-# Health check (verifies SSE endpoint responds)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/sse', timeout=5)" || exit 1
+    CMD python -c "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost',8000)); s.close(); exit(0)" || exit 1
 
 # Default: run in SSE mode for Docker (HTTP on port 8000)
 # Override to "stdio" for CLI / kilo integration
