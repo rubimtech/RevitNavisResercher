@@ -136,6 +136,10 @@ OLLAMA_CHAT_MODEL=qwen2.5-coder:7b
 
 > **Важно:** Ollama должна быть запущена (`ollama serve`) до старта MCP-сервера или Web App.
 
+---
+
+## 🐳 Docker Compose
+
 Файл `docker-compose.yml` поднимает:
 - **MCP-сервер** — на порту `8000` (SSE-режим)
 - **Web App** — REST API + фронтенд на порту `8080`
