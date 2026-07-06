@@ -1,0 +1,61 @@
+# =============================================================================
+# MCP Server Configuration — RevitNavisResearcher
+# =============================================================================
+# Этот файл выносит настройки поведения MCP-сервера в YAML.
+# Переменные окружения (.env) имеют приоритет над значениями здесь.
+# =============================================================================
+
+# ── MCP Transport ───────────────────────────────────────────────────────────
+transport:
+  mode: sse              # "stdio" — для kilo/CLI, "sse" — для Docker/HTTP
+  host: 0.0.0.0
+  port: 8000
+
+# ── RouterAI / LLM ─────────────────────────────────────────────────────────
+llm:
+  base_url: "https://routerai.ru/api/v1"
+  embedding_model: "baai/bge-m3"
+  chat_model: "deepseek/deepseek-v4-flash"
+  temperature: 0.3
+  max_tokens: 4096
+
+# ── Qdrant Vector DB ────────────────────────────────────────────────────────
+qdrant:
+  url: "http://localhost:6333"
+  include_full_code: true     # подтягивать full_code из revit_codebase.db по db_id
+  # collections to expose
+  collections:
+    - name: "revit_api_knowledge"
+      description: "Revit API documentation (classes, methods, properties)"
+    - name: "Revit_SDK_Samples"
+      description: "Revit SDK sample code and examples"
+    - name: "navisworks_api_bge"
+      description: "Navisworks API documentation"
+
+# ── HTTP Client ─────────────────────────────────────────────────────────────
+http_client:
+  timeout_seconds: 30
+  max_retries: 3
+  retry_delay_seconds: 1.0
+  retry_backoff_factor: 2.0
+
+# ── Output ──────────────────────────────────────────────────────────────────
+output:
+  character_limit: 25000
+  truncate_payload: 400
+  truncate_syntax: 200
+
+# ── Supported Revit versions ────────────────────────────────────────────────
+revit_versions:
+  - "2021"
+  - "2022"
+  - "2023"
+  - "2024"
+  - "2025"
+  - "2026"
+  - "2027"
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+logging:
+  level: "INFO"         # DEBUG | INFO | WARNING | ERROR
+  format: "json"        # "json" or "text"

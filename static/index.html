@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RevitNavis Researcher</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; width: 100%; flex: 1; display: flex; flex-direction: column; }
+
+  header { text-align: center; padding: 24px 0 20px; }
+  header h1 { font-size: 1.6rem; font-weight: 700; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--text-dim); font-size: 0.9rem; margin-top: 4px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .search-form { display: flex; flex-direction: column; gap: 14px; }
+  .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .form-row label { color: var(--text-dim); font-size: 0.85rem; min-width: 40px; }
+
+  textarea#query {
+    width: 100%; min-height: 56px; max-height: 160px; resize: vertical;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 12px 14px; font-size: 1rem; font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  textarea#query:focus { outline: none; border-color: var(--accent); }
+
+  select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 8px 12px; font-size: 0.9rem; cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+
+  .checkbox-group { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-dim); cursor: pointer; }
+  .checkbox-label input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+  .toggle-all { font-size: 0.75rem; color: var(--accent); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .toggle-all:hover { background: rgba(88,166,255,0.1); }
+
+  button {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px;
+    border: none; border-radius: var(--radius); font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: #3d444d; }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 12px; font-size: 0.8rem; }
+  .btn-danger:hover { background: rgba(248,81,73,0.1); }
+  .btn-xs { padding: 4px 10px; font-size: 0.75rem; border-radius: 4px; }
+
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+
+  .status-bar {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.85rem; color: var(--text-dim); min-height: 24px;
+  }
+
+  .results { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+
+  .result-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;
+    opacity: 0; transform: translateY(8px); animation: slideIn 0.3s ease forwards;
+  }
+  @keyframes slideIn { to { opacity: 1; transform: translateY(0); } }
+
+  .result-header { display: flex; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
+  .result-title { font-weight: 600; font-size: 1rem; color: var(--accent); word-break: break-word; }
+  .result-score { font-size: 0.8rem; background: rgba(88,166,255,0.15); color: var(--accent); padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .result-summary { font-size: 0.9rem; color: var(--text-dim); line-height: 1.5; }
+  .result-syntax { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.82rem; background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 6px; margin-top: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .result-tag { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 10px; margin-right: 6px; }
+  .tag-revit { background: rgba(88,166,255,0.2); color: var(--accent); }
+  .tag-sdk { background: rgba(63,185,80,0.2); color: var(--green); }
+  .tag-navis { background: rgba(210,153,34,0.2); color: var(--orange); }
+
+  .rvtdocs-item { padding: 5px 0; }
+  .rvtdocs-item a { color: var(--accent); text-decoration: none; }
+  .rvtdocs-item a:hover { text-decoration: underline; }
+  .rvtdocs-desc { font-size: 0.85rem; color: var(--text-dim); margin-top: 2px; }
+  .rvtdocs-badge { font-size: 0.72rem; background: rgba(139,148,158,0.2); padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+
+  .analysis { line-height: 1.7; font-size: 0.95rem; }
+  .analysis h1, .analysis h2, .analysis h3 { margin: 16px 0 8px; color: var(--accent); }
+  .analysis h2 { font-size: 1.2rem; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .analysis p { margin: 8px 0; }
+  .analysis pre {
+    background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; overflow-x: auto;
+    font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.82rem; margin: 10px 0; position: relative;
+  }
+  .analysis code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
+  .analysis pre code { background: none; padding: 0; }
+  .analysis ul, .analysis ol { padding-left: 20px; margin: 8px 0; }
+  .analysis li { margin: 4px 0; }
+  .analysis strong { color: #fff; }
+  .analysis a { color: var(--accent); }
+
+  .copy-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--border); color: var(--text-dim); border: none;
+    border-radius: 4px; padding: 4px 8px; font-size: 0.72rem; cursor: pointer; opacity: 0; transition: opacity 0.2s;
+  }
+  .analysis pre:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { background: #3d444d; color: var(--text); }
+  .copy-btn.copied { background: var(--green); color: #fff; }
+
+  .coll-group-title { font-size: 0.82rem; color: var(--text-dim); margin: 8px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+
+  .section-title { font-weight: 600; color: var(--text-dim); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .section-header .section-title { margin-bottom: 0; }
+
+  .hidden { display: none !important; }
+
+  .footer { text-align: center; padding: 20px 0; color: var(--text-dim); font-size: 0.8rem; }
+
+  .error-card { border-color: var(--red); }
+  .error-card .result-title { color: var(--red); }
+
+  .cursor-pointer { cursor: pointer; }
+
+  .history-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s; gap: 8px;
+  }
+  .history-item:hover { background: rgba(88,166,255,0.08); }
+  .history-text { font-size: 0.88rem; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history-col { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
+  .history-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; }
+  .history-empty { font-size: 0.85rem; color: var(--text-dim); text-align: center; padding: 8px; }
+
+  .stream-cursor::after { content: '▊'; animation: blink 0.8s step-end infinite; color: var(--accent); }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  @media (max-width: 600px) {
+    .container { padding: 12px; }
+    header h1 { font-size: 1.3rem; }
+    .form-row { flex-direction: column; align-items: stretch; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Revit<span>Navis</span> Researcher</h1>
+    <p>Семантический поиск по Revit API, SDK Samples и Navisworks API</p>
+  </header>
+
+  <div class="card">
+    <form class="search-form" id="searchForm">
+      <textarea id="query" placeholder="Например: как получить список параметров, общих для нескольких категорий Revit" autofocus></textarea>
+      <div class="form-row">
+        <div class="checkbox-group" id="collectionGroup">
+          <label class="checkbox-label"><input type="checkbox" value="revit_api_knowledge" checked> Revit API</label>
+          <label class="checkbox-label"><input type="checkbox" value="Revit_SDK_Samples"> Revit SDK</label>
+          <label class="checkbox-label"><input type="checkbox" value="navisworks_api_bge"> Navisworks</label>
+          <button type="button" class="toggle-all" id="selectAllBtn">Все</button>
+          <button type="button" class="toggle-all" id="deselectAllBtn">Сброс</button>
+        </div>
+        <label for="version">Revit</label>
+        <select id="version">
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026">2026</option>
+          <option value="2027">2027</option>
+          <option value="2023">2023</option>
+          <option value="2022">2022</option>
+          <option value="2021">2021</option>
+        </select>
+        <button type="submit" class="btn-primary" id="searchBtn">
+          <span id="btnIcon">🔍</span>
+          <span id="btnText">Искать</span>
+        </button>
+        <button type="button" class="btn-secondary" id="clearBtn">Очистить</button>
+      </div>
+    </form>
+    <div class="status-bar" id="statusBar"></div>
+  </div>
+
+  <div id="historySection" class="card">
+    <div class="section-header">
+      <div class="section-title">История</div>
+      <button type="button" class="btn-danger btn-xs hidden" id="clearHistoryBtn">Очистить</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="results hidden" id="resultsArea">
+    <div id="analysisSection">
+      <div class="section-title">Ответ</div>
+      <div class="card" id="analysisContent"></div>
+    </div>
+
+    <div id="qdrantSection" class="hidden">
+      <div class="section-title" id="qdrantTitle">Qdrant результаты</div>
+      <div id="qdrantResults"></div>
+    </div>
+
+    <div id="rvtdocsSection" class="hidden">
+      <div class="section-title" id="rvtdocsTitle">rvtdocs.com результаты</div>
+      <div id="rvtdocsResults"></div>
+    </div>
+  </div>
+
+  <div class="footer">RevitNavis Researcher &mdash; MCP Server + Web UI</div>
+</div>
+
+<script>
+const HISTORY_KEY = 'revitnavis_history';
+const MAX_HISTORY = 20;
+
+const form = document.getElementById('searchForm');
+const query = document.getElementById('query');
+const version = document.getElementById('version');
+const searchBtn = document.getElementById('searchBtn');
+const clearBtn = document.getElementById('clearBtn');
+const btnIcon = document.getElementById('btnIcon');
+const btnText = document.getElementById('btnText');
+const statusBar = document.getElementById('statusBar');
+const resultsArea = document.getElementById('resultsArea');
+const analysisSection = document.getElementById('analysisSection');
+const analysisContent = document.getElementById('analysisContent');
+const qdrantSection = document.getElementById('qdrantSection');
+const qdrantResults = document.getElementById('qdrantResults');
+const rvtdocsSection = document.getElementById('rvtdocsSection');
+const rvtdocsResults = document.getElementById('rvtdocsResults');
+const qdrantTitle = document.getElementById('qdrantTitle');
+const rvtdocsTitle = document.getElementById('rvtdocsTitle');
+const historySection = document.getElementById('historySection');
+const historyList = document.getElementById('historyList');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+const selectAllBtn = document.getElementById('selectAllBtn');
+const deselectAllBtn = document.getElementById('deselectAllBtn');
+
+// ─── URL params restore ─────────────────────────────────────────────────
+
+function restoreFromUrl() {
+  const p = new URLSearchParams(window.location.search);
+  const qVal = p.get('q');
+  if (qVal) query.value = qVal;
+  const cols = p.get('cols');
+  if (cols) {
+    const selected = cols.split(',');
+    document.querySelectorAll('#collectionGroup input[type="checkbox"]').forEach(cb => {
+      cb.checked = selected.includes(cb.value);
+    });
+  }
+  const v = p.get('v');
+  if (v && [...version.options].some(o => o.value === v)) version.value = v;
+}
+restoreFromUrl();
+
+function setUrlParams() {
+  const p = new URLSearchParams();
+  const q = query.value.trim();
+  if (q) p.set('q', q);
+  const cols = getSelectedCollections();
+  if (cols.length && cols.length < 3) p.set('cols', cols.join(','));
+  const v = version.value;
+  if (v !== '2024') p.set('v', v);
+  const url = window.location.pathname + (p.toString() ? '?' + p : '');
+  window.history.replaceState({}, '', url);
+}
+
+// ─── Select All / Deselect All ───────────────────────────────────────────
+
+selectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('#collectionGroup input[type="checkbox"]').forEach(cb => cb.checked = true);
+});
+deselectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('#collectionGroup input[type="checkbox"]').forEach(cb => cb.checked = false);
+});
+
+// ─── History ─────────────────────────────────────────────────────────────
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+}
+
+function saveHistory(items) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+}
+
+function addHistory(q, cols, v) {
+  const items = loadHistory();
+  items.unshift({ q, cols, v, t: Date.now(), label: getCollectionLabel(cols[0]) + (cols.length > 1 ? ` +${cols.length - 1}` : '') });
+  if (items.length > MAX_HISTORY) items.length = MAX_HISTORY;
+  saveHistory(items);
+  renderHistory();
+}
+
+function renderHistory() {
+  const items = loadHistory();
+  clearHistoryBtn.classList.toggle('hidden', items.length === 0);
+  if (items.length === 0) {
+    historyList.innerHTML = '<div class="history-empty">История пуста</div>';
+    return;
+  }
+  historyList.innerHTML = items.map((item, i) => {
+    const timeStr = new Date(item.t).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return `<div class="history-item" data-idx="${i}">
+      <span class="history-text">${escapeHtml(item.q)}</span>
+      <span class="history-col">${escapeHtml(item.label)}</span>
+      <span class="history-time">${timeStr}</span>
+    </div>`;
+  }).join('');
+  historyList.querySelectorAll('.history-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const items = loadHistory();
+      const idx = parseInt(el.dataset.idx);
+      const item = items[idx];
+      if (!item) return;
+      query.value = item.q;
+      document.querySelectorAll('#collectionGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = item.cols.includes(cb.value);
+      });
+      if (item.v && [...version.options].some(o => o.value === item.v)) version.value = item.v;
+      query.focus();
+    });
+  });
+}
+
+clearHistoryBtn.addEventListener('click', () => {
+  saveHistory([]);
+  renderHistory();
+});
+
+renderHistory();
+
+// ─── Core functions ──────────────────────────────────────────────────────
+
+function getSelectedCollections() {
+  return Array.from(document.querySelectorAll('#collectionGroup input[type="checkbox"]:checked')).map(c => c.value);
+}
+
+function getCollectionLabel(name) {
+  const map = { 'revit_api_knowledge': 'Revit API', 'Revit_SDK_Samples': 'Revit SDK', 'navisworks_api_bge': 'Navisworks' };
+  return map[name] || name;
+}
+
+function getCollectionTag(name) {
+  if (name.includes('sdk') || name.includes('SDK')) return 'tag-sdk';
+  if (name.includes('navis')) return 'tag-navis';
+  return 'tag-revit';
+}
+
+function setStatus(msg, type) {
+  statusBar.innerHTML = msg;
+  statusBar.style.color = type === 'error' ? 'var(--red)' : type === 'success' ? 'var(--green)' : 'var(--text-dim)';
+}
+
+function setLoading(loading) {
+  if (loading) {
+    searchBtn.disabled = true;
+    btnIcon.innerHTML = '<span class="spinner"></span>';
+    btnText.textContent = 'Поиск...';
+  } else {
+    searchBtn.disabled = false;
+    btnIcon.textContent = '🔍';
+    btnText.textContent = 'Искать';
+  }
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function renderQdrant(results) {
+  if (!results || results.length === 0) { qdrantSection.classList.add('hidden'); return; }
+  qdrantSection.classList.remove('hidden');
+  qdrantTitle.textContent = `Qdrant результаты (${results.length})`;
+
+  const grouped = {};
+  results.forEach(r => {
+    const c = r.collection || 'unknown';
+    if (!grouped[c]) grouped[c] = [];
+    grouped[c].push(r);
+  });
+
+  const keys = Object.keys(grouped);
+  let html = '';
+  keys.forEach((coll, gi) => {
+    const items = grouped[coll];
+    html += `<div class="coll-group-title">${getCollectionLabel(coll)} — ${items.length}</div>`;
+    items.forEach((r, i) => {
+      const tagClass = getCollectionTag(coll);
+      const syntaxHtml = r.syntax ? `<div class="result-syntax">${escapeHtml(r.syntax)}</div>` : '';
+      html += `<div class="result-card" style="animation-delay: ${(gi * items.length + i) * 0.04}s">
+        <div class="result-header">
+          <span class="result-title"><span class="result-tag ${tagClass}">${getCollectionLabel(coll)}</span>${escapeHtml(r.name || '—')}</span>
+          <span class="result-score">${r.score?.toFixed(3) || ''}</span>
+        </div>
+        <div class="result-summary">${escapeHtml(r.summary || '')}</div>
+        ${syntaxHtml}
+      </div>`;
+    });
+  });
+  qdrantResults.innerHTML = html;
+}
+
+function renderRvtdocs(results) {
+  if (!results || results.length === 0) { rvtdocsSection.classList.add('hidden'); return; }
+  rvtdocsSection.classList.remove('hidden');
+  rvtdocsTitle.textContent = `rvtdocs.com (${results.length})`;
+  rvtdocsResults.innerHTML = results.map(r =>
+    `<div class="rvtdocs-item">
+      <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>
+      <span style="color:var(--text-dim);font-size:0.8rem"> (${r.type})</span>
+      <span class="rvtdocs-badge">v${r.version}</span>
+      ${r.description ? `<div class="rvtdocs-desc">${escapeHtml(r.description.slice(0, 200))}</div>` : ''}
+    </div>`
+  ).join('');
+}
+
+let streamAbort = null;
+
+function renderAnalysis(text, streaming) {
+  if (!text && !streaming) { analysisSection.classList.add('hidden'); return; }
+  analysisSection.classList.remove('hidden');
+  if (streaming) {
+    analysisContent.innerHTML = markedParse(text) + '<span class="stream-cursor"></span>';
+  } else {
+    analysisContent.innerHTML = markedParse(text);
+  }
+  addCopyButtons();
+}
+
+function addCopyButtons() {
+  document.querySelectorAll('#analysisContent pre').forEach(pre => {
+    if (pre.querySelector('.copy-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = '📋 Копировать';
+    btn.addEventListener('click', async () => {
+      const code = pre.textContent;
+      try {
+        await navigator.clipboard.writeText(code);
+        btn.textContent = '✅ Скопировано';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋 Копировать'; btn.classList.remove('copied'); }, 2000);
+      } catch { btn.textContent = '❌ Ошибка'; }
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+}
+
+function markedParse(text) {
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/### (.+)/g, '<h3>$1</h3>')
+    .replace(/## (.+)/g, '<h2>$1</h2>')
+    .replace(/# (.+)/g, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/\n\n/g, '</p><p>');
+  return `<p>${html}</p>`;
+}
+
+// ─── SSE stream search ───────────────────────────────────────────────────
+
+async function doStreamSearch(payload) {
+  if (streamAbort) { streamAbort.abort(); streamAbort = null; }
+  streamAbort = new AbortController();
+
+  resultsArea.classList.remove('hidden');
+  analysisSection.classList.remove('hidden');
+  analysisContent.innerHTML = '<p style="color:var(--text-dim)"><span class="spinner spinner-sm" style="vertical-align:middle;margin-right:8px"></span>Ожидание ответа...</p>';
+
+  let analysisText = '';
+
+  try {
+    const res = await fetch('/api/research/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: streamAbort.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          const eventType = line.slice(7).trim();
+          let dataLine = '';
+          while (lines.indexOf(line) < lines.length - 1) {
+            // data follows on next line
+          }
+          // Simplified: read next data line
+          const nextIdx = lines.indexOf(line) + 1;
+          if (nextIdx < lines.length && lines[nextIdx].startsWith('data: ')) {
+            dataLine = lines[nextIdx].slice(6).trim();
+          }
+          // We'll use a different approach for SSE parsing
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    throw err;
+  }
+}
+
+// ─── Restart SSE with proper parser ──────────────────────────────────────
+
+async function doStreamSearch2(payload) {
+  if (streamAbort) { streamAbort.abort(); streamAbort = null; }
+  streamAbort = new AbortController();
+
+  resultsArea.classList.remove('hidden');
+  analysisSection.classList.remove('hidden');
+  analysisContent.innerHTML = '<p style="color:var(--text-dim)"><span class="spinner spinner-sm" style="vertical-align:middle;margin-right:8px"></span>Загрузка...</p>';
+  qdrantSection.classList.add('hidden');
+  rvtdocsSection.classList.add('hidden');
+
+  let analysisText = '';
+
+  try {
+    const res = await fetch('/api/research/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: streamAbort.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const data = JSON.parse(dataStr);
+            switch (currentEvent) {
+              case 'status':
+                setStatus(`⏳ ${escapeHtml(data.msg)}`);
+                break;
+              case 'qdrant':
+                renderQdrant(data.qdrant_results);
+                break;
+              case 'rvtdocs':
+                renderRvtdocs(data.rvtdocs_results);
+                break;
+              case 'token':
+                analysisText += data.token;
+                renderAnalysis(analysisText, true);
+                break;
+              case 'done':
+                renderAnalysis(analysisText, false);
+                setStatus(`✅ Готово`, 'success');
+                setLoading(false);
+                break;
+              case 'error':
+                setStatus(`❌ ${escapeHtml(data.error)}`, 'error');
+                setLoading(false);
+                break;
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    setStatus(`❌ ${err.message}`, 'error');
+    setLoading(false);
+  }
+}
+
+// ─── Form submit ─────────────────────────────────────────────────────────
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = query.value.trim();
+  if (!q) { setStatus('⚠️ Введите вопрос', 'error'); return; }
+
+  const selected = getSelectedCollections();
+  if (selected.length === 0) { setStatus('⚠️ Выберите хотя бы одну коллекцию', 'error'); return; }
+
+  setLoading(true);
+  setStatus('⏳ Запуск...');
+  resultsArea.classList.add('hidden');
+  analysisSection.classList.add('hidden');
+  qdrantSection.classList.add('hidden');
+  rvtdocsSection.classList.add('hidden');
+
+  const payload = { query: q, collections: selected, limit: 8, revit_version: version.value };
+  setUrlParams();
+  addHistory(q, selected, version.value);
+
+  await doStreamSearch2(payload);
+});
+
+clearBtn.addEventListener('click', () => {
+  if (streamAbort) { streamAbort.abort(); streamAbort = null; }
+  resultsArea.classList.add('hidden');
+  analysisSection.classList.add('hidden');
+  qdrantSection.classList.add('hidden');
+  rvtdocsSection.classList.add('hidden');
+  setStatus('');
+  query.value = '';
+  query.focus();
+});
+
+query.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    form.dispatchEvent(new Event('submit'));
+  }
+});
+</script>
+</body>
+</html>

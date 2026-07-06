@@ -1,0 +1,19 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "revit-navis-research": {
+      "type": "local",
+      "command": [
+        "python",
+        "D:\\DEV\\RevitNavisResercher\\mcp_server.py"
+      ],
+      "environment": {
+        "ROUTERAI_API_KEY": "${ROUTERAI_API_KEY}",
+        "ROUTERAI_BASE_URL": "https://routerai.ru/api/v1",
+        "EMBEDDING_MODEL": "baai/bge-m3",
+        "LLM_MODEL": "deepseek/deepseek-v4-flash",
+        "QDRANT_URL": "http://d9e0f9d73f7a.vps.myjino.ru:6333"
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+# =============================================================================
+# RevitNavisResearcher Web App — Dockerfile
+# Runs the FastAPI + static frontend on port 8080
+# =============================================================================
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.12-slim AS final
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    groupadd -r revitnavis && \
+    useradd -r -g revitnavis -d /app -s /sbin/nologin revitnavis
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY web_app.py .
+COPY mcp_config.yaml .
+COPY static/ static/
+COPY .env .env
+
+RUN chown -R revitnavis:revitnavis /app
+
+USER revitnavis
+
+EXPOSE 8080
+
+ENV WEB_HOST=0.0.0.0
+ENV WEB_PORT=8080
+
+ENTRYPOINT ["python", "web_app.py"]

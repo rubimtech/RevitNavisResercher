@@ -1,0 +1,48 @@
+# =============================================================================
+# RevitNavisResearcher — Docker Compose
+# =============================================================================
+services:
+  # ── MCP Server (Revit & Navisworks API Research) ──────────────────────────
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: revitnavis-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY:-sk-placeholder}
+      - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
+      - EMBEDDING_MODEL=baai/bge-m3
+      - LLM_MODEL=deepseek/deepseek-v4-flash
+      - QDRANT_URL=http://host.docker.internal:6333
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/sse', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Web App (REST API + Frontend) ─────────────────────────────────────────
+  web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: revitnavis-web
+    ports:
+      - "8080:8080"
+    environment:
+      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY:-sk-placeholder}
+      - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
+      - EMBEDDING_MODEL=baai/bge-m3
+      - LLM_MODEL=deepseek/deepseek-v4-flash
+      - QDRANT_URL=http://host.docker.internal:6333
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
