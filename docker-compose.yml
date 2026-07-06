@@ -11,7 +11,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # API key читается из .env внутри контейнера
+      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY}
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash
@@ -38,7 +38,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # API key читается из .env внутри контейнера
+      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY:-sk-your-key-here}
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash

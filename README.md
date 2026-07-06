@@ -207,19 +207,69 @@ research(query="how to create a curtain wall in Revit API", revit_version="2025"
 
 ## 🏗 Архитектура
 
-```
-┌──────────────┐     stdio/SSE     ┌───────────────┐
-│  AI Assistant │ ◄──────────────► │  MCP Server   │
-│  (kilo / CUA) │                  │  (Python)     │
-└──────────────┘                   └───────┬───────┘
-                                           │
-                    ┌──────────────────────┼──────────────────┐
-                    ▼                      ▼                   ▼
-            ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-            │    Qdrant    │     │  RouterAI    │     │  rvtdocs.com │
-            │  Vector DB   │     │  (LLM+Embed) │     │  Revit API   │
-            └──────────────┘     └──────────────┘     │  Docs        │
-                                                       └──────────────┘
+```mermaid
+graph TB
+    %% ── Стили ──
+    classDef client fill:#1f2937,stroke:#6366f1,stroke-width:2px,color:#e2e8f0
+    classDef server fill:#0f172a,stroke:#22d3ee,stroke-width:2px,color:#e2e8f0
+    classDef storage fill:#0c1929,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0
+    classDef external fill:#1a0a2e,stroke:#c084fc,stroke-width:2px,color:#e2e8f0
+    classDef router fill:#1a1a2e,stroke:#f59e0b,stroke-width:2px,color:#e2e8f0
+    classDef ollama fill:#0f1a0f,stroke:#22c55e,stroke-width:2px,color:#e2e8f0
+    classDef web fill:#0f172a,stroke:#f472b6,stroke-width:2px,color:#e2e8f0
+
+    %% ── Клиенты ──
+    AI["🤖 AI Assistant<br/>(kilo / CUA / Copilot)"]:::client
+    Browser["🌐 Browser<br/>(Web UI)"]:::client
+
+    %% ── MCP Server ──
+    subgraph MCP["MCP Server (:8000)"]
+        direction TB
+        MCP_Tools["🧰 Tools<br/>qdrant_search · rvtdocs_search<br/>rvtdocs_get_page · analyze · research"]:::server
+    end
+
+    %% ── Web App ──
+    subgraph Web["Web App (:8080)"]
+        direction TB
+        API["🌍 REST API<br/>/api/search/qdrant · /api/search/rvtdocs<br/>/api/research · /api/research/stream"]:::web
+        FE["🎨 Frontend<br/>Dark UI · SSE streaming · History"]:::web
+    end
+
+    %% ── Backend Services ──
+    subgraph Backend["Backend Services"]
+        Qdrant["📊 Qdrant<br/>Vector Database<br/>· revit_api_knowledge<br/>· Revit_SDK_Samples<br/>· navisworks_api_bge"]:::storage
+        SQLite["🗄️ SQLite<br/>revit_codebase.db<br/>(full_code по db_id)"]:::storage
+    end
+
+    %% ── LLM Providers ──
+    subgraph LLM["LLM Providers"]
+        RouterAI["☁️ RouterAI<br/>Embedding: bge-m3<br/>Chat: deepseek-v4-flash"]:::router
+        Ollama["🦙 Ollama (локально)<br/>Embedding: nomic-embed-text<br/>Chat: qwen2.5-coder:7b"]:::ollama
+    end
+
+    %% ── External ──
+    RvtDocs["📖 rvtdocs.com<br/>Revit API Docs<br/>(2021–2027)"]:::external
+
+    %% ── Connections ──
+    AI -- "stdio / SSE" --> MCP_Tools
+    Browser -- "HTTP / SSE" --> API
+    API --> FE
+
+    MCP_Tools -- "REST :6333" --> Qdrant
+    MCP_Tools --> SQLite
+    MCP_Tools -- "HTTP" --> RvtDocs
+
+    API -- "REST :6333" --> Qdrant
+    API -- "HTTP" --> RvtDocs
+
+    MCP_Tools -- "LLM_PROVIDER=routerai" --> RouterAI
+    MCP_Tools -- "LLM_PROVIDER=ollama" --> Ollama
+    API -- "LLM_PROVIDER=routerai" --> RouterAI
+    API -- "LLM_PROVIDER=ollama" --> Ollama
+
+    %% ── Links ──
+    click Qdrant "http://localhost:6333/dashboard" _blank
+    click RvtDocs "https://rvtdocs.com" _blank
 ```
 
 ---
