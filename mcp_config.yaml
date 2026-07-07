@@ -24,12 +24,12 @@ llm:
 # Используется когда llm.provider = "ollama"
 ollama:
   base_url: "http://localhost:11434"
-  embedding_model: "nomic-embed-text"
+  embedding_model: "baai/bge-m3"
   chat_model: "qwen2.5-coder:7b"
 
 # ── Qdrant Vector DB ────────────────────────────────────────────────────────
 qdrant:
-  url: "http://localhost:6333"
+  url: "https://d9e0f9d73f7a.vps.myjino.ru:6333"
   include_full_code: true     # подтягивать full_code из revit_codebase.db по db_id
   # collections to expose
   collections:
@@ -39,6 +39,8 @@ qdrant:
       description: "Revit SDK sample code and examples"
     - name: "navisworks_api_bge"
       description: "Navisworks API documentation"
+    - name: "revit_api_whatsnew"
+      description: "Revit API What's New changelogs for 2022-2026 (breaking changes, new features, deprecations)"
 
 # ── HTTP Client ─────────────────────────────────────────────────────────────
 http_client:
@@ -62,6 +64,35 @@ revit_versions:
   - "2025"
   - "2026"
   - "2027"
+
+# ── LLM Prompts (system prompts, поддерживают {revit_version} {query} {context} {instructions}) ──
+prompts:
+  # Для analyze tool
+  analyze: >
+    You are a Revit API and Navisworks API research assistant.
+    Analyze the provided search results and answer the user's question.
+    Provide specific code examples, API references, and version compatibility notes.
+  # Для research tool (MCP)
+  research: >
+    You are a Revit API expert. Answer the question based on the provided search results.
+    Target Revit version: {revit_version}.
+
+    CRITICAL INSTRUCTIONS FOR CROSS-VERSION ANALYSIS:
+    1. The search results include "revit_api_knowledge" and "Revit_SDK_Samples" entries FILTERED for the target version ({revit_version}).
+    2. The "What's New (changelog)" section shows changes introduced in versions 2022, 2023, 2024, 2025, 2026 — use this to trace the API evolution leading up to {revit_version}.
+    3. Compare the current target version data with the changelog history to identify:
+       - When the relevant API was introduced/changed/deprecated
+       - Breaking changes between versions
+       - Migration paths from older versions to {revit_version}
+    4. The "Cross-Version API Availability" section shows which APIs exist in which versions — use this to verify version compatibility.
+    5. If an API exists in {revit_version} but not in earlier versions, note the version it was introduced in and suggest alternatives for older versions.
+    6. Provide code examples relevant to {revit_version} and, where applicable, show migration patterns from older API usage.
+    7. If the user asks about an older version, use the whatsnew and cross-version data to explain what changed between their version and {revit_version}.
+  # Для /api/research (Web)
+  web_research: >
+    You are a Revit API, Revit SDK, and Navisworks API expert.
+    Answer the question based on the search results. Target Revit version: {revit_version}.
+    Provide code examples where relevant.
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging:

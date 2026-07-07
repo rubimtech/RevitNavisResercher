@@ -27,10 +27,12 @@ from urllib.parse import urlparse
 import aiosqlite
 import httpx
 import yaml
+from bs4 import BeautifulSoup, Tag
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.models import Filter as QdrantFilter, FieldCondition, MatchValue
 
 # ─── Load .env early ────────────────────────────────────────────────────────
 load_dotenv(Path(__file__).parent / ".env")
@@ -67,12 +69,13 @@ def _load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
             "chat_model": "qwen2.5-coder:7b",
         },
         "qdrant": {
-            "url": "http://localhost:6333",
+            "url": "https://d9e0f9d73f7a.vps.myjino.ru:6333",
             "include_full_code": False,
             "collections": [
                 {"name": "revit_api_knowledge", "description": "Revit API documentation"},
                 {"name": "Revit_SDK_Samples", "description": "Revit SDK samples"},
                 {"name": "navisworks_api_bge", "description": "Navisworks API documentation"},
+                {"name": "revit_api_whatsnew", "description": "Revit API What's New changelogs (2022-2026)"},
             ],
         },
         "http_client": {
@@ -90,6 +93,20 @@ def _load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
             "truncate_syntax": 200,
         },
         "revit_versions": ["2021", "2022", "2023", "2024", "2025", "2026", "2027"],
+        "prompts": {
+            "analyze": (
+                "You are a Revit API and Navisworks API research assistant. "
+                "Analyze the provided search results and answer the user's question. "
+                "Provide specific code examples, API references, and version compatibility notes."
+            ),
+            "research": (
+                "You are a Revit API expert. Answer the question based on the provided search results. "
+                "Target Revit version: {revit_version}. "
+                "IMPORTANT: Check cross-version availability and note when APIs were introduced/changed/deprecated. "
+                "Provide code examples relevant to the target version. "
+                "If an API is deprecated or not available in {revit_version}, suggest alternatives."
+            ),
+        },
         "logging": {"level": "INFO", "format": "text"},
     }
 
@@ -226,7 +243,7 @@ def _is_retryable(exc: Exception) -> bool:
 def _get_qdrant() -> AsyncQdrantClient:
     global _qdrant_client
     if _qdrant_client is None:
-        url = _get_cfg("qdrant", "url", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
+        url = _get_cfg("qdrant", "url", default=os.environ.get("QDRANT_URL", "https://d9e0f9d73f7a.vps.myjino.ru:6333"))
         _qdrant_client = AsyncQdrantClient(url=url)
     return _qdrant_client
 
@@ -441,14 +458,21 @@ async def qdrant_search(
     limit: int = 10,
     score_threshold: Optional[float] = None,
     include_full_code: Optional[bool] = None,
+    version: Optional[str] = None,
 ) -> str:
     """Search a Qdrant collection using semantic search via RouterAI embeddings."""
     try:
         client = _get_qdrant()
         vector = await _get_embedding(query)
+        qdrant_filter = None
+        if version:
+            qdrant_filter = QdrantFilter(
+                must=[FieldCondition(key="versions", match=MatchValue(value=version))]
+            )
         results = await client.query_points(
             collection_name=collection,
             query=vector,
+            query_filter=qdrant_filter,
             limit=limit,
             score_threshold=score_threshold,
             with_payload=True,
@@ -663,82 +687,339 @@ async def rvtdocs_search(query: str, version: str = "2024", limit: int = 10) -> 
 @mcp.tool(
     name="rvtdocs_get_page",
     annotations={
-        "title": "Get rvtdocs API page content",
+        "title": "Get rvtdocs API page content (markdown)",
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
         "openWorldHint": True,
     },
 )
-async def rvtdocs_get_page(url: str, version: str = "2024") -> str:
-    """Fetch full API documentation page from rvtdocs.com with code examples."""
+async def rvtdocs_get_page(url: str) -> str:
+    """Fetch a Revit API documentation page from rvtdocs.com as structured markdown.
+
+    Parses namespace, title, type, description, remarks, hierarchy, syntax blocks
+    (C#, VB.NET, C++), and tables into clean markdown."""
+    try:
+        result = await _fetch_and_parse_rvtdocs_page(url)
+        if "error" in result:
+            return json.dumps(result, indent=2, ensure_ascii=False)
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        _logger.error("rvtdocs_get_page failed: %s", e)
+        return json.dumps({"error": f"Failed: {e}"}, indent=2)
+
+
+# ─── revitapidocs.com Search ────────────────────────────────────────────────
+
+_SEARCH_RESULT_TYPES = [
+    "Class", "Constructor", "Method", "Methods",
+    "Property", "Properties", "Interface", "Enumeration",
+]
+
+async def _search_revitapidocs_com(
+    query: str, max_results: int = 10
+) -> list[dict]:
+    """Search Revit API on revitapidocs.com via Construct.io autocomplete."""
     try:
         client = _get_http()
-
-        # SSRF protection: only allow rvtdocs.com URLs
-        base_url = url if url.startswith("http") else f"https://rvtdocs.com{url}"
-        parsed = urlparse(base_url)
-        if parsed.netloc not in ("rvtdocs.com", "www.rvtdocs.com"):
-            return _format_error(f"URL must be on rvtdocs.com, got: {parsed.netloc}")
-        base_url = base_url.split("?")[0]
-
-        r = await client.get(f"{base_url}?ajax=1", follow_redirects=True)
+        timestamp = int(time.time() * 1000)
+        encoded_query = re.sub(r"[^a-zA-Z0-9_ .]", "", query).strip().replace(" ", "+")
+        url = (
+            f"https://ac.cnstrc.com/autocomplete/{encoded_query}"
+            f"?query={encoded_query}"
+            f"&autocomplete_key=key_yyAC1mb0cTgZTwSo"
+            f"&c=ciojs-2.1233.4&num_results={max_results}"
+            f"&i=d705c917-8e5a-491f-8bc4-9b43e78de48c&s=10&_dt={timestamp}"
+        )
+        r = await client.get(url)
         r.raise_for_status()
-        html = r.text
+        data = r.json()
 
-        # Extract C# code snippets
-        codes = re.findall(r"<code[^>]*>(.*?)</code>", html, re.DOTALL)
-        csharp_signatures: list[str] = []
-        csharp_examples: list[str] = []
-
-        for c in codes:
-            clean = re.sub(r"<[^>]+>", "", c)
-            clean = re.sub(r"\s+", " ", clean).strip()
-            if not clean or len(clean) < 30:
+        results: list[dict] = []
+        for item in (data.get("sections") or {}).get("Products") or []:
+            title: str = item.get("value", "")
+            raw_url: str = (item.get("data") or {}).get("url", "")
+            result_type = _parse_revitapidocs_type(title)
+            if result_type == "Members":
                 continue
-            if any(kw in clean for kw in ["class", "struct", "interface", "static", "void", "public"]):
-                if "Create" in clean or "Get" in clean or "Set" in clean or "(" in clean:
-                    csharp_examples.append(clean[:500])
-                else:
-                    csharp_signatures.append(clean[:500])
+            # Convert url like "/2025/Document.Open" -> slug
+            slug = raw_url.split(".")[0] if "." in raw_url else raw_url
+            results.append({
+                "title": title,
+                "type": result_type,
+                "url": slug,
+                "source": "revitapidocs.com",
+            })
+        return results
+    except Exception as e:
+        _logger.warning("revitapidocs.com search failed: %s", e)
+        return []
 
-        # Extract description
-        desc_match = re.search(
-            r'<meta[^>]+name="description"[^>]+content="([^"]+)"', html, re.IGNORECASE
+
+def _parse_revitapidocs_type(title: str) -> str:
+    parts = title.strip().split()
+    last = parts[-1] if parts else ""
+    for t in (*_SEARCH_RESULT_TYPES, "Members"):
+        if last == t:
+            return t
+    return "Unknown"
+
+
+async def _search_both_sources(
+    query: str, version: str = "2024", limit: int = 10
+) -> list[dict]:
+    """Search both rvtdocs.com and revitapidocs.com, deduplicate by URL."""
+    rvtdocs_results: list[dict] = []
+    try:
+        client = _get_http()
+        r = await client.post(
+            "https://rvtdocs.com/search/api/search",
+            json={"query": query, "current_version": version, "include_description": True},
         )
-        description = desc_match.group(1) if desc_match else ""
+        r.raise_for_status()
+        data = r.json()
+        for item in data.get("current_version_results", [])[:limit]:
+            rvtdocs_results.append({
+                "title": item.get("title", ""),
+                "type": item.get("type", ""),
+                "namespace": item.get("namespace", ""),
+                "description": item.get("description", ""),
+                "url": item.get("url", ""),
+                "source": "rvtdocs.com",
+            })
+    except Exception as e:
+        _logger.warning("rvtdocs.com search failed: %s", e)
 
-        # Extract remarks
-        remarks = ""
-        rm = re.search(
-            r"<h2[^>]*>Remarks</h2>\s*<div[^>]*>(.*?)(?:<h2|</div>\s*<h2)",
-            html,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if rm:
-            remarks = re.sub(r"<[^>]+>", "", rm.group(1))
-            remarks = re.sub(r"\s+", " ", remarks).strip()[:1000]
+    rap_results = await _search_revitapidocs_com(query, limit * 2)
 
-        # Find deprecated
-        deprecated = ""
-        dep_match = re.search(r"\[Obsolete[^\]]*\]|deprecated", html, re.IGNORECASE)
-        if dep_match:
-            ctx = html[max(0, dep_match.start() - 100) : dep_match.end() + 200]
-            deprecated = re.sub(r"<[^>]+>", "", ctx)
-            deprecated = re.sub(r"\s+", " ", deprecated).strip()[:500]
+    seen_urls: set[str] = set()
+    combined: list[dict] = []
+    for r in rvtdocs_results:
+        key = r["url"]
+        if key not in seen_urls:
+            seen_urls.add(key)
+            combined.append(r)
+    for r in rap_results:
+        key = r["url"]
+        if key not in seen_urls:
+            seen_urls.add(key)
+            combined.append(r)
 
+    # Sort: Classes first, then Methods, Properties, etc.
+    type_order = {t: i for i, t in enumerate(_SEARCH_RESULT_TYPES)}
+    combined.sort(key=lambda x: type_order.get(x.get("type", ""), 99))
+    return combined[:limit]
+
+
+# ─── Improved rvtdocs Page Parsing with BeautifulSoup ──────────────────────
+
+async def _fetch_and_parse_rvtdocs_page(url: str) -> dict:
+    """Fetch an rvtdocs.com page and extract structured content as markdown."""
+    client = _get_http()
+    base_url = url if url.startswith("http") else f"https://rvtdocs.com{url}"
+    parsed = urlparse(base_url)
+    if parsed.netloc not in ("rvtdocs.com", "www.rvtdocs.com"):
+        return {"error": f"URL must be on rvtdocs.com, got: {parsed.netloc}"}
+    base_url = base_url.split("?")[0]
+
+    r = await client.get(f"{base_url}?ajax=1", follow_redirects=True)
+    r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "lxml")
+    md_parts: list[str] = []
+
+    # ── Namespace ──
+    ns_el = soup.find(class_="card-namespace")
+    if ns_el:
+        text = ns_el.get_text(strip=True)
+        if "Namespace:" in text:
+            ns = text.replace("Namespace:", "").strip()
+            md_parts.append(f"**Namespace:** {ns}\n")
+
+    # ── Title + Type badge ──
+    title_card = soup.find(class_="card-title")
+    if title_card:
+        h1 = title_card.find("h1")
+        if h1:
+            md_parts.append(f"# {h1.get_text(strip=True)}\n")
+        badge = title_card.find(class_="bg-gray-200")
+        if badge:
+            md_parts.append(f"**Type:** {badge.get_text(strip=True)}\n")
+
+    # ── Description ──
+    desc_el = soup.find(class_="card-description")
+    if desc_el:
+        html = _extract_inner_html(desc_el)
+        html = html.replace("<strong>Description:</strong>", "").strip()
+        text = _html_to_markdown(html)
+        if text:
+            md_parts.append(f"## Description\n\n{text}\n")
+
+    # ── Remarks ──
+    remarks_el = soup.find(class_="card-remarks")
+    if remarks_el:
+        html = _extract_inner_html(remarks_el)
+        html = html.replace("<strong>Remarks:</strong>", "").strip()
+        text = _html_to_markdown(html)
+        if text:
+            md_parts.append(f"## Remarks\n\n{text}\n")
+
+    # ── Hierarchy ──
+    hierarchy_section = soup.find(
+        lambda tag: tag.name == "div"
+        and tag.get("class")
+        and "hierarchy" in " ".join(tag.get("class", []))
+    )
+    if hierarchy_section:
+        text = hierarchy_section.get_text(" ", strip=True)
+        if text:
+            md_parts.append(f"## Hierarchy\n\n{text}\n")
+
+    # ── Syntax sections ──
+    for card_title in soup.find_all(class_="card-title"):
+        if "Syntax" in card_title.get_text():
+            parent_card = card_title.find_parent(class_="card")
+            if parent_card:
+                md_parts.append("## Syntax\n")
+                for snippet in parent_card.find_all(class_="code-snippet"):
+                    code_el = snippet.find("code")
+                    if code_el:
+                        code_text = code_el.get_text()
+                        code_class = code_el.get("class", "") or ""
+                        lang = "vbnet" if "vbnet" in " ".join(code_class) else (
+                            "cpp" if "cpp" in " ".join(code_class) else "csharp"
+                        )
+                        md_parts.append(f"```{lang}\n{code_text}\n```\n")
+
+    # ── Tables ──
+    for table in soup.find_all("table"):
+        md_table = _extract_markdown_table(table)
+        if md_table:
+            md_parts.append(md_table)
+
+    markdown = "\n".join(md_parts)
+    markdown = "\n".join(line for line in markdown.split("\n") if line.strip() or not line.strip())
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown).strip()
+
+    return {
+        "url": base_url,
+        "markdown": markdown,
+        "description": _extract_meta_desc(soup),
+    }
+
+
+def _extract_inner_html(tag: Tag) -> str:
+    parts: list[str] = []
+    for child in tag.children:
+        if isinstance(child, Tag):
+            parts.append(str(child))
+        else:
+            parts.append(str(child))
+    return "".join(parts)
+
+
+def _html_to_markdown(html: str) -> str:
+    result = html
+    result = re.sub(r"<br\s*/?>", "\n", result)
+    result = re.sub(r"<p>", "", result)
+    result = re.sub(r"</p>", "\n", result)
+    result = re.sub(r"<strong>(.*?)</strong>", r"**\1**", result)
+    result = re.sub(r"<ul>", "", result)
+    result = re.sub(r"</ul>", "", result)
+    result = re.sub(r"<ol>", "", result)
+    result = re.sub(r"</ol>", "", result)
+    result = re.sub(r"<li>(.*?)</li>", r"- \1", result)
+    result = re.sub(r"<[^>]+>", "", result)
+    result = re.sub(r"\s+", " ", result)
+    result = re.sub(r"\n ", "\n", result)
+    return result.strip()
+
+
+def _extract_markdown_table(table: Tag) -> str:
+    lines: list[str] = []
+    thead = table.find("thead")
+    tbody = table.find("tbody")
+
+    if thead:
+        header_row = thead.find("tr")
+        if header_row:
+            headers = [
+                th.get_text(" ", strip=True) for th in header_row.find_all("th")
+            ]
+            lines.append(f"| {' | '.join(headers)} |")
+            lines.append(f"|{'|'.join('---' for _ in headers)}|")
+
+    if tbody:
+        for row in tbody.find_all("tr"):
+            cells = [td.get_text(" ", strip=True) for td in row.find_all("td")]
+            if cells:
+                lines.append(f"| {' | '.join(cells)} |")
+
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _extract_meta_desc(soup: BeautifulSoup) -> str:
+    meta = soup.find("meta", attrs={"name": "description"})
+    return meta.get("content", "")[:500] if meta else ""
+
+
+# ─── revitapidocs.com Search Tool ──────────────────────────────────────────
+
+@mcp.tool(
+    name="revitapidocs_search",
+    annotations={
+        "title": "Search Revit API on revitapidocs.com",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def revitapidocs_search(query: str, limit: int = 10) -> str:
+    """Search Revit API documentation on revitapidocs.com using Construct.io autocomplete."""
+    try:
+        results = await _search_revitapidocs_com(query, limit)
         response = {
-            "url": base_url,
-            "description": description[:500],
-            "remarks": remarks[:1500] if remarks else "",
-            "signatures": csharp_signatures[:5],
-            "code_examples": csharp_examples[:5],
-            "deprecation": deprecated,
+            "query": query,
+            "count": len(results),
+            "results": results,
         }
         return json.dumps(response, indent=2, ensure_ascii=False)
     except Exception as e:
-        _logger.error("rvtdocs_get_page failed: %s", e)
-        return _format_error(f"Failed to fetch page: {e}")
+        _logger.error("revitapidocs_search failed: %s", e)
+        return json.dumps({"error": f"Search failed: {e}"}, indent=2)
+
+
+# ─── Combined Revit API Search Tool ────────────────────────────────────────
+
+@mcp.tool(
+    name="revit_api_search",
+    annotations={
+        "title": "Search Revit API (rvtdocs + revitapidocs combined)",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def revit_api_search(
+    query: str,
+    version: str = "2024",
+    limit: int = 10,
+) -> str:
+    """Search Revit API across both rvtdocs.com and revitapidocs.com with deduplication."""
+    try:
+        results = await _search_both_sources(query, version, limit)
+        response = {
+            "query": query,
+            "version": version,
+            "count": len(results),
+            "results": results,
+        }
+        return json.dumps(response, indent=2, ensure_ascii=False)
+    except Exception as e:
+        _logger.error("revit_api_search failed: %s", e)
+        return json.dumps({"error": f"Search failed: {e}"}, indent=2)
 
 
 # ─── Cross-Version rvtdocs Tool ─────────────────────────────────────────────
@@ -825,9 +1106,7 @@ async def analyze_results(query: str, context: str, instructions: str = "") -> s
         return _format_error("ROUTERAI_API_KEY not set (or set LLM_PROVIDER=ollama)")
     try:
         system = (
-            "You are a Revit API and Navisworks API research assistant. "
-            "Analyze the provided search results and answer the user's question. "
-            "Provide specific code examples, API references, and version compatibility notes. "
+            _get_cfg("prompts", "analyze", default="") + " "
             f"{instructions}"
         )
         result = await _llm_chat(
@@ -858,17 +1137,28 @@ async def analyze_results(query: str, context: str, instructions: str = "") -> s
     },
 )
 async def research(query: str, revit_version: str = "2024") -> str:
-    """Complete research pipeline: Qdrant → rvtdocs (current + all past versions) → LLM analysis."""
+    """Complete research pipeline: Qdrant (knowledge + SDK + whatsnew) + rvtdocs → LLM analysis with cross-version awareness."""
     if _llm_provider() != "ollama" and not os.environ.get("ROUTERAI_API_KEY"):
         return _format_error("ROUTERAI_API_KEY not set for LLM analysis (or set LLM_PROVIDER=ollama). Qdrant search still works.")
 
     try:
+        # 1. Current version knowledge (target revit_version)
         qdrant_results = json.loads(
-            await qdrant_search(query=query, collection="revit_api_knowledge", limit=8)
+            await qdrant_search(query=query, collection="revit_api_knowledge", limit=5, version=revit_version)
         )
+        # 2. SDK samples for target version
+        sdk_results = json.loads(
+            await qdrant_search(query=query, collection="Revit_SDK_Samples", limit=5, version=revit_version)
+        )
+        # 3. What's New changelogs across all previous versions (2022-2026)
+        whatsnew_results = json.loads(
+            await qdrant_search(query=query, collection="revit_api_whatsnew", limit=8)
+        )
+        # 4. rvtdocs for current version
         rvtdocs_results = json.loads(
             await rvtdocs_search(query=query, version=revit_version, limit=8)
         )
+        # 5. Cross-version rvtdocs search
         config_versions = _get_cfg("revit_versions", default=["2021","2022","2023","2024","2025","2026","2027"])
         cross_version = json.loads(
             await rvtdocs_cross_version_search(query=query, limit=3, versions=config_versions)
@@ -876,8 +1166,14 @@ async def research(query: str, revit_version: str = "2024") -> str:
 
         context_parts: list[str] = []
         if "results" in qdrant_results:
-            context_parts.append("## Qdrant Results (vector search)")
+            context_parts.append(f"## Qdrant Results — revit_api_knowledge (filtered for Revit {revit_version})")
             for r in qdrant_results["results"]:
+                context_parts.append(
+                    f"- {r['payload']['name']} (score: {r['score']}): {r['payload']['summary'][:300]}"
+                )
+        if "results" in sdk_results:
+            context_parts.append(f"\n## Qdrant Results — Revit_SDK_Samples (filtered for Revit {revit_version})")
+            for r in sdk_results["results"]:
                 context_parts.append(
                     f"- {r['payload']['name']} (score: {r['score']}): {r['payload']['summary'][:300]}"
                 )
@@ -885,6 +1181,15 @@ async def research(query: str, revit_version: str = "2024") -> str:
             context_parts.append(f"\n## rvtdocs Results (version {revit_version})")
             for r in rvtdocs_results["results"]:
                 context_parts.append(f"- {r['title']} ({r['type']}): {r['description'][:300]}")
+
+        if "results" in whatsnew_results:
+            context_parts.append("\n## Revit API What's New (changelogs 2022-2026)")
+            context_parts.append("IMPORTANT: These changelogs show what changed BETWEEN versions. Use them to understand what APIs were added/changed/deprecated in each release leading up to the target version.")
+            for r in whatsnew_results["results"]:
+                context_parts.append(
+                    f"- Revit {r['payload'].get('version', '?')} [{r['payload'].get('section', '')}] "
+                    f"{r['payload'].get('subsection', '')[:200]} (score: {r['score']})"
+                )
 
         if cross_version.get("results_by_version"):
             context_parts.append("\n## Cross-Version API Availability")
@@ -897,12 +1202,8 @@ async def research(query: str, revit_version: str = "2024") -> str:
 
         context = "\n".join(context_parts) if context_parts else "No results found."
 
-        system = (
-            f"You are a Revit API expert. Answer the question based on the provided search results. "
-            f"Target Revit version: {revit_version}. "
-            f"IMPORTANT: Check cross-version availability and note when APIs were introduced/changed/deprecated. "
-            f"Provide code examples relevant to the target version. "
-            f"If an API is deprecated or not available in {revit_version}, suggest alternatives."
+        system = _get_cfg("prompts", "research", default="").format(
+            revit_version=revit_version,
         )
         result = await _llm_chat(
             [{"role": "user", "content": f"## Question\n{query}\n\n## Search Results\n{context}"}],
@@ -913,6 +1214,8 @@ async def research(query: str, revit_version: str = "2024") -> str:
             "query": query,
             "revit_version": revit_version,
             "qdrant_count": qdrant_results.get("count", 0),
+            "sdk_count": sdk_results.get("count", 0),
+            "whatsnew_count": whatsnew_results.get("count", 0),
             "rvtdocs_count": rvtdocs_results.get("count", 0),
             "cross_version_searched": config_versions,
             "analysis": result,
@@ -970,7 +1273,7 @@ async def _amain(argv: Optional[list[str]] = None) -> None:
             pass  # Windows doesn't support add_signal_handler
 
     _logger.info("🚀 Starting RevitNavis MCP server (transport=%s)", transport)
-    _logger.info("   Qdrant: %s", _get_cfg("qdrant", "url", default="http://localhost:6333"))
+    _logger.info("   Qdrant: %s", _get_cfg("qdrant", "url", default="https://d9e0f9d73f7a.vps.myjino.ru:6333"))
     _logger.info("   LLM provider: %s", _llm_provider())
 
     if _llm_provider() == "ollama":

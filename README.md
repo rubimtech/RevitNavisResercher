@@ -118,7 +118,7 @@ winget install Ollama.Ollama  # Windows
 ollama serve
 
 # В другом терминале — скачать модели
-ollama pull nomic-embed-text     # для эмбеддингов
+ollama pull baai/bge-m3     # для эмбеддингов
 ollama pull qwen2.5-coder:7b     # для LLM (~4.7 ГБ)
 ```
 
@@ -127,7 +127,7 @@ ollama pull qwen2.5-coder:7b     # для LLM (~4.7 ГБ)
 ```
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+OLLAMA_EMBEDDING_MODEL=baai/bge-m3
 OLLAMA_CHAT_MODEL=qwen2.5-coder:7b
 # ROUTERAI_API_KEY можно не указывать
 ```

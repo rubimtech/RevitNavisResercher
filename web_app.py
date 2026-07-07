@@ -85,9 +85,16 @@ def _load_config() -> dict[str, Any]:
             "embedding_model": "nomic-embed-text",
             "chat_model": "qwen2.5-coder:7b",
         },
-        "qdrant": {"url": "http://localhost:6333"},
+        "qdrant": {"url": "https://d9e0f9d73f7a.vps.myjino.ru:6333"},
         "http_client": {"timeout_seconds": 60, "max_retries": 3, "retry_delay_seconds": 1.0, "retry_backoff_factor": 2.0},
         "output": {"character_limit": 25000, "truncate_payload": 400, "truncate_syntax": 200},
+        "prompts": {
+            "web_research": (
+                "You are a Revit API, Revit SDK, and Navisworks API expert. "
+                "Answer the question based on the search results. Target Revit version: {revit_version}. "
+                "Provide code examples where relevant."
+            ),
+        },
     }
     if cfg_path.exists():
         import yaml
@@ -137,7 +144,7 @@ def _llm_provider() -> str:
 def _get_qdrant() -> AsyncQdrantClient:
     global _qdrant
     if _qdrant is None:
-        url = _get_cfg("qdrant", "url", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
+        url = _get_cfg("qdrant", "url", default=os.environ.get("QDRANT_URL", "https://d9e0f9d73f7a.vps.myjino.ru:6333"))
         _qdrant = AsyncQdrantClient(url=url)
     return _qdrant
 
@@ -150,7 +157,7 @@ def _get_http() -> httpx.AsyncClient:
     return _http
 
 
-async def _get_embedding(text: str) -> list[float]:
+async def _get_embedding(text: str, api_key: Optional[str] = None) -> list[float]:
     key = f"emb:{text}"
     cached = _cache_get(key)
     if cached:
@@ -161,12 +168,12 @@ async def _get_embedding(text: str) -> list[float]:
         _cache_set(key, result)
         return result
 
-    result = await _routerai_embedding(text)
+    result = await _routerai_embedding(text, api_key=api_key)
     _cache_set(key, result)
     return result
 
 
-async def _routerai_embedding(text: str) -> list[float]:
+async def _routerai_embedding(text: str, api_key: Optional[str] = None) -> list[float]:
     key = f"emb:{text}"
     cached = _cache_get(key)
     if cached:
@@ -174,7 +181,7 @@ async def _routerai_embedding(text: str) -> list[float]:
     client = _get_http()
     url = f"{_get_cfg('llm', 'base_url').rstrip('/')}/embeddings"
     model = _get_cfg("llm", "embedding_model", default="baai/bge-m3")
-    api_key = os.environ.get("ROUTERAI_API_KEY", "")
+    api_key = api_key or os.environ.get("ROUTERAI_API_KEY", "")
     resp = await client.post(
         url, json={"model": model, "input": text},
         headers={"Authorization": f"Bearer {api_key}"},
@@ -198,28 +205,28 @@ async def _ollama_embedding(text: str) -> list[float]:
     return resp.json()["embeddings"][0]
 
 
-async def _llm_chat_full(messages: list[dict], system: str = "") -> str:
+async def _llm_chat_full(messages: list[dict], system: str = "", api_key: Optional[str] = None) -> str:
     full = ""
-    async for chunk in _llm_chat_stream(messages, system):
+    async for chunk in _llm_chat_stream(messages, system, api_key=api_key):
         full += chunk
     return full
 
 
-async def _llm_chat_stream(messages: list[dict], system: str = ""):
+async def _llm_chat_stream(messages: list[dict], system: str = "", api_key: Optional[str] = None):
     if _llm_provider() == "ollama":
         async for chunk in _ollama_chat_stream(messages, system):
             yield chunk
         return
-    async for chunk in _routerai_chat_stream(messages, system):
+    async for chunk in _routerai_chat_stream(messages, system, api_key=api_key):
         yield chunk
 
 
-async def _routerai_chat_stream(messages: list[dict], system: str = ""):
+async def _routerai_chat_stream(messages: list[dict], system: str = "", api_key: Optional[str] = None):
     client = _get_http()
     url = f"{_get_cfg('llm', 'base_url').rstrip('/')}/chat/completions"
     model = _get_cfg("llm", "chat_model", default="deepseek/deepseek-v4-flash")
     temperature = _get_cfg("llm", "temperature", default=0.3)
-    api_key = os.environ.get("ROUTERAI_API_KEY", "")
+    api_key = api_key or os.environ.get("ROUTERAI_API_KEY", "")
     msgs: list[dict] = []
     if system:
         msgs.append({"role": "system", "content": system})
@@ -310,6 +317,10 @@ class AnalyzeRequest(BaseModel):
     instructions: str = Field(default="")
 
 
+class ResearchWithKeyRequest(SearchRequest):
+    api_key: str = Field(..., min_length=8, description="RouterAI API ключ для этого запроса")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global config, _logger
@@ -374,14 +385,14 @@ async def api_config():
 
 
 @app.post("/api/search/qdrant")
-async def search_qdrant(req: SearchRequest):
+async def search_qdrant(req: SearchRequest, api_key: Optional[str] = None):
     ck = _cache_key(req)
     cached = _cache_get(ck)
     if cached:
         return cached
     try:
         client = _get_qdrant()
-        vector = await _get_embedding(req.query)
+        vector = await _get_embedding(req.query, api_key=api_key)
         trunc_payload = _get_cfg("output", "truncate_payload", default=400)
         trunc_syntax = _get_cfg("output", "truncate_syntax", default=200)
         seen_ids: set[str] = set()
@@ -480,8 +491,8 @@ async def search_rvtdocs(req: SearchRequest):
         raise HTTPException(500, str(e))
 
 
-async def _build_context(req: SearchRequest) -> tuple[dict, dict, str]:
-    qdrant_data = await search_qdrant(req)
+async def _build_context(req: SearchRequest, api_key: Optional[str] = None) -> tuple[dict, dict, str]:
+    qdrant_data = await search_qdrant(req, api_key=api_key)
     qdrant_results = json.loads(qdrant_data.body.decode()) if hasattr(qdrant_data, 'body') else qdrant_data
 
     rvtdocs_results_list = await _search_rvtdocs(req.query, req.revit_version, req.limit)
@@ -509,10 +520,8 @@ async def research(req: SearchRequest):
     try:
         qdrant_results, rvtdocs_results, context = await _build_context(req)
 
-        system = (
-            "You are a Revit API, Revit SDK, and Navisworks API expert. "
-            f"Answer the question based on the search results. Target Revit version: {req.revit_version}. "
-            "Provide code examples where relevant."
+        system = _get_cfg("prompts", "web_research", default="").format(
+            revit_version=req.revit_version,
         )
         analysis = await _llm_chat_full(
             [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
@@ -558,10 +567,8 @@ async def research_stream(req: SearchRequest):
 
             yield "event: status\ndata: {\"msg\":\"Генерация ответа...\"}\n\n"
 
-            system = (
-                "You are a Revit API, Revit SDK, and Navisworks API expert. "
-                f"Answer the question based on the search results. Target Revit version: {req.revit_version}. "
-                "Provide code examples where relevant."
+            system = _get_cfg("prompts", "web_research", default="").format(
+                revit_version=req.revit_version,
             )
             async for chunk in _llm_chat_stream(
                 [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
@@ -572,6 +579,85 @@ async def research_stream(req: SearchRequest):
             yield "event: done\ndata: {}\n\n"
         except Exception as e:
             _logger.error("research stream failed: %s", e, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/research/with-key")
+async def research_with_key(req: ResearchWithKeyRequest):
+    """Research endpoint with per-request RouterAI API key."""
+    try:
+        if _llm_provider() == "ollama":
+            raise HTTPException(400, "This endpoint is only for RouterAI provider (not ollama)")
+
+        qdrant_results, rvtdocs_results, context = await _build_context(req, api_key=req.api_key)
+
+        system = _get_cfg("prompts", "web_research", default="").format(
+            revit_version=req.revit_version,
+        )
+        analysis = await _llm_chat_full(
+            [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
+            system=system,
+            api_key=req.api_key,
+        )
+        return {
+            "query": req.query, "revit_version": req.revit_version, "collections": req.collections,
+            "qdrant_count": qdrant_results.get("count", 0),
+            "rvtdocs_count": rvtdocs_results.get("count", 0),
+            "qdrant_results": qdrant_results.get("results", [])[:8],
+            "rvtdocs_results": rvtdocs_results.get("results", [])[:5],
+            "analysis": analysis,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        _logger.error("research with key failed: %s", e, exc_info=True)
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/research/with-key/stream")
+async def research_with_key_stream(req: ResearchWithKeyRequest):
+    """SSE endpoint with per-request RouterAI API key."""
+    if _llm_provider() == "ollama":
+        raise HTTPException(400, "This endpoint is only for RouterAI provider (not ollama)")
+
+    async def _event_stream():
+        try:
+            yield "event: status\ndata: {\"msg\":\"Поиск в Qdrant...\"}\n\n"
+            qdrant_results, rvtdocs_results, context = await _build_context(req, api_key=req.api_key)
+            qdrant_json = {
+                "qdrant_count": qdrant_results.get("count", 0),
+                "qdrant_results": qdrant_results.get("results", [])[:8],
+            }
+            yield f"event: qdrant\ndata: {json.dumps(qdrant_json, ensure_ascii=False)}\n\n"
+
+            yield "event: status\ndata: {\"msg\":\"Поиск на rvtdocs.com...\"}\n\n"
+            rvtdocs_json = {
+                "rvtdocs_count": rvtdocs_results.get("count", 0),
+                "rvtdocs_results": rvtdocs_results.get("results", [])[:5],
+            }
+            yield f"event: rvtdocs\ndata: {json.dumps(rvtdocs_json, ensure_ascii=False)}\n\n"
+
+            yield "event: status\ndata: {\"msg\":\"Генерация ответа...\"}\n\n"
+
+            system = _get_cfg("prompts", "web_research", default="").format(
+                revit_version=req.revit_version,
+            )
+            async for chunk in _llm_chat_stream(
+                [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
+                system=system,
+                api_key=req.api_key,
+            ):
+                yield f"event: token\ndata: {json.dumps({'token': chunk}, ensure_ascii=False)}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+        except Exception as e:
+            _logger.error("research with key stream failed: %s", e, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(

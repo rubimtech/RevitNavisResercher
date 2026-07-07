@@ -22,7 +22,7 @@
 ```python
 qdrant_search(
     query="<запрос>",
-    collection="revit_api_knowledge",  # revit_api_knowledge | Revit_SDK_Samples | navisworks_api_bge
+    collection="revit_api_knowledge",  # revit_api_knowledge | Revit_SDK_Samples | navisworks_api_bge | revit_api_whatsnew
     limit=10,
     score_threshold=None,             # 0.0–1.0
     include_full_code=False           # подтянуть полный код из SQLite
@@ -30,7 +30,8 @@ qdrant_search(
 ```
 
 **Когда использовать:** пользователь спрашивает про Revit API классы, методы, свойства. Запрос на естественном языке.  
-Параметр `include_full_code=True` подгружает полный исходный код из локальной SQLite (`revit_codebase.db`) — полезно для SDK Samples.
+Параметр `include_full_code=True` подгружает полный исходный код из локальной SQLite (`revit_codebase.db`) — полезно для SDK Samples.  
+Коллекция `revit_api_whatsnew` содержит What's New ченжлоги Revit API 2022–2026 (критические изменения, новые возможности, удаление устаревшего).
 
 ### 2. `rvtdocs_search` — поиск по rvtdocs.com
 
@@ -93,7 +94,7 @@ research(
 )
 ```
 
-Оптимальный выбор для большинства вопросов: сам ищет в Qdrant, rvtdocs (текущая версия + кросс-версионный поиск по 2021–2027), затем анализирует через LLM с учётом доступности API в разных версиях.
+Оптимальный выбор для большинства вопросов: сам ищет в Qdrant (включая коллекцию `revit_api_whatsnew` с ченжлогами), rvtdocs (текущая версия + кросс-версионный поиск по 2021–2027), затем анализирует через LLM с учётом доступности API в разных версиях.
 
 ---
 
@@ -117,7 +118,7 @@ research(
 | Параметр | Рекомендация |
 |----------|-------------|
 | `limit` | 5–10 для быстрого ответа, 15–20 для глубокого исследования |
-| `collection` | `revit_api_knowledge` — для Revit API, `navisworks_api_bge` — для Navisworks |
+| `collection` | `revit_api_knowledge` — для Revit API, `revit_api_whatsnew` — для What's New ченжлогов, `navisworks_api_bge` — для Navisworks |
 | `score_threshold` | Не используй без необходимости. Если качество плохое — попробуй 0.5+ |
 | `version` | Всегда указывай версию Revit, если пользователь её назвал. По умолчанию — 2024 |
 | `include_full_code` | `true` для SDK Samples — подгружает полный код из `revit_codebase.db` |

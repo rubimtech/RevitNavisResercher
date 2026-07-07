@@ -6,6 +6,8 @@ pydantic>=2.0
 python-dotenv>=1.0
 PyYAML>=6.0
 aiosqlite>=0.20
+beautifulsoup4>=4.12
+lxml>=5.1
 
 # Web App dependencies
 fastapi>=0.111.0
