@@ -1,5 +1,14 @@
 {
   "$schema": "https://app.kilo.ai/config.json",
+  "model": "openai/deepseek/deepseek-v4-flash",
+  "provider": {
+    "openai": {
+      "options": {
+        "apiKey": "${ROUTERAI_API_KEY}",
+        "baseURL": "https://routerai.ru/api/v1"
+      }
+    }
+  },
   "mcp": {
     "revit-navis-research": {
       "type": "local",

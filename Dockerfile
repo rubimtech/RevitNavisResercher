@@ -36,6 +36,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application files
 COPY mcp_server.py .
+COPY server/ server/
 COPY mcp_config.yaml .
 COPY .env .env
 COPY revit_codebase.db .

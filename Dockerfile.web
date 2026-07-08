@@ -26,6 +26,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY web_app.py .
+COPY web_app/ web_app/
 COPY mcp_config.yaml .
 COPY static/ static/
 COPY .env .env

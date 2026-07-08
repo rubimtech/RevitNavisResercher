@@ -13,23 +13,22 @@ transport:
 
 # ── LLM Provider ────────────────────────────────────────────────────────────
 llm:
-  provider: "routerai"          # "routerai" | "ollama"
-  base_url: "https://routerai.ru/api/v1"
-  embedding_model: "baai/bge-m3"
-  chat_model: "deepseek/deepseek-v4-flash"
+  provider: "ollama"               # "routerai" | "ollama"
+  base_url: "http://localhost:11434"
+  embedding_model: "bge-m3"
+  chat_model: "qwen2.5-coder:7b"
   temperature: 0.3
   max_tokens: 4096
 
-# ── Ollama (локальный LLM, альтернатива RouterAI) ──────────────────────────
-# Используется когда llm.provider = "ollama"
+# ── Ollama (локальный LLM) ──────────────────────────────────────────────────
 ollama:
   base_url: "http://localhost:11434"
-  embedding_model: "baai/bge-m3"
+  embedding_model: "bge-m3"
   chat_model: "qwen2.5-coder:7b"
 
 # ── Qdrant Vector DB ────────────────────────────────────────────────────────
 qdrant:
-  url: "https://d9e0f9d73f7a.vps.myjino.ru:6333"
+  url: "http://d9e0f9d73f7a.vps.myjino.ru:6333"
   include_full_code: true     # подтягивать full_code из revit_codebase.db по db_id
   # collections to expose
   collections:

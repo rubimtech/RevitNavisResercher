@@ -155,8 +155,35 @@
   .history-time { font-size: 0.72rem; color: var(--text-dim); white-space: nowrap; }
   .history-empty { font-size: 0.85rem; color: var(--text-dim); text-align: center; padding: 8px; }
 
-  .stream-cursor::after { content: '▊'; animation: blink 0.8s step-end infinite; color: var(--accent); }
+  .stream-cursor::after { content: '\u258a'; animation: blink 0.8s step-end infinite; color: var(--accent); }
   @keyframes blink { 50% { opacity: 0; } }
+
+  /* ─── Chat styles ─── */
+  .chat-section { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+  .chat-messages { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; padding: 4px; }
+  .chat-msg { padding: 10px 14px; border-radius: var(--radius); max-width: 85%; line-height: 1.5; font-size: 0.9rem; }
+  .chat-msg.user { background: var(--accent); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chat-msg.assistant { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .chat-msg.system { display: none; }
+  .chat-msg .msg-content p { margin: 4px 0; }
+  .chat-msg .msg-content p:first-child { margin-top: 0; }
+  .chat-msg .msg-content p:last-child { margin-bottom: 0; }
+  .chat-msg .msg-content code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-size: 0.85em; }
+  .chat-msg .msg-content pre { background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 6px 0; overflow-x: auto; font-size: 0.82rem; }
+  .chat-msg.user .msg-content code { background: rgba(255,255,255,0.2); }
+  .chat-msg.user .msg-content pre { background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.2); }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row textarea {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 10px 14px; font-size: 0.9rem; font-family: inherit;
+    resize: none; min-height: 40px; max-height: 120px;
+    transition: border-color 0.2s;
+  }
+  .chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-input-row button { padding: 8px 18px; }
+  .chat-msg-search { font-size: 0.75rem; color: var(--orange); padding: 4px 0; text-align: center; }
+  .chat-clear-btn { background: none; border: none; color: var(--text-dim); font-size: 0.75rem; cursor: pointer; padding: 4px 8px; }
+  .chat-clear-btn:hover { color: var(--red); }
 
   @media (max-width: 600px) {
     .container { padding: 12px; }
@@ -215,6 +242,9 @@
     <div id="analysisSection">
       <div class="section-title">Ответ</div>
       <div class="card" id="analysisContent"></div>
+      <div style="text-align:center;margin-top:-8px;margin-bottom:16px">
+        <button type="button" class="btn-secondary hidden" id="continueChatBtn">💬 Продолжить в чате</button>
+      </div>
     </div>
 
     <div id="qdrantSection" class="hidden">
@@ -226,6 +256,18 @@
       <div class="section-title" id="rvtdocsTitle">rvtdocs.com результаты</div>
       <div id="rvtdocsResults"></div>
     </div>
+
+    <div id="chatSection" class="card chat-section hidden">
+      <div class="section-header">
+        <div class="section-title">Чат по результатам</div>
+        <button type="button" class="chat-clear-btn" id="chatClearBtn">Очистить чат</button>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-row">
+        <textarea id="chatInput" placeholder="Задайте уточняющий вопрос..." rows="1"></textarea>
+        <button class="btn-primary" id="chatSendBtn">Отправить</button>
+      </div>
+    </div>
   </div>
 
   <div class="footer">RevitNavis Researcher &mdash; MCP Server + Web UI</div>
@@ -233,6 +275,7 @@
 
 <script>
 const HISTORY_KEY = 'revitnavis_history';
+const CHAT_KEY = 'revitnavis_chat_';
 const MAX_HISTORY = 20;
 
 const form = document.getElementById('searchForm');
@@ -246,6 +289,7 @@ const statusBar = document.getElementById('statusBar');
 const resultsArea = document.getElementById('resultsArea');
 const analysisSection = document.getElementById('analysisSection');
 const analysisContent = document.getElementById('analysisContent');
+const continueChatBtn = document.getElementById('continueChatBtn');
 const qdrantSection = document.getElementById('qdrantSection');
 const qdrantResults = document.getElementById('qdrantResults');
 const rvtdocsSection = document.getElementById('rvtdocsSection');
@@ -257,6 +301,16 @@ const historyList = document.getElementById('historyList');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const selectAllBtn = document.getElementById('selectAllBtn');
 const deselectAllBtn = document.getElementById('deselectAllBtn');
+
+const chatSection = document.getElementById('chatSection');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
+const chatClearBtn = document.getElementById('chatClearBtn');
+
+let streamAbort = null;
+let lastSearchPayload = null;
+let lastSearchContext = null;
 
 // ─── URL params restore ─────────────────────────────────────────────────
 
@@ -440,8 +494,6 @@ function renderRvtdocs(results) {
   ).join('');
 }
 
-let streamAbort = null;
-
 function renderAnalysis(text, streaming) {
   if (!text && !streaming) { analysisSection.classList.add('hidden'); return; }
   analysisSection.classList.remove('hidden');
@@ -489,6 +541,18 @@ function markedParse(text) {
   return `<p>${html}</p>`;
 }
 
+function chatMarkedParse(text) {
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  return `<p>${html}</p>`;
+}
+
 // ─── SSE stream search ───────────────────────────────────────────────────
 
 async function doStreamSearch(payload) {
@@ -497,67 +561,10 @@ async function doStreamSearch(payload) {
 
   resultsArea.classList.remove('hidden');
   analysisSection.classList.remove('hidden');
-  analysisContent.innerHTML = '<p style="color:var(--text-dim)"><span class="spinner spinner-sm" style="vertical-align:middle;margin-right:8px"></span>Ожидание ответа...</p>';
-
-  let analysisText = '';
-
-  try {
-    const res = await fetch('/api/research/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: streamAbort.signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `HTTP ${res.status}`);
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-          let dataLine = '';
-          while (lines.indexOf(line) < lines.length - 1) {
-            // data follows on next line
-          }
-          // Simplified: read next data line
-          const nextIdx = lines.indexOf(line) + 1;
-          if (nextIdx < lines.length && lines[nextIdx].startsWith('data: ')) {
-            dataLine = lines[nextIdx].slice(6).trim();
-          }
-          // We'll use a different approach for SSE parsing
-        }
-      }
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') return;
-    throw err;
-  }
-}
-
-// ─── Restart SSE with proper parser ──────────────────────────────────────
-
-async function doStreamSearch2(payload) {
-  if (streamAbort) { streamAbort.abort(); streamAbort = null; }
-  streamAbort = new AbortController();
-
-  resultsArea.classList.remove('hidden');
-  analysisSection.classList.remove('hidden');
   analysisContent.innerHTML = '<p style="color:var(--text-dim)"><span class="spinner spinner-sm" style="vertical-align:middle;margin-right:8px"></span>Загрузка...</p>';
   qdrantSection.classList.add('hidden');
   rvtdocsSection.classList.add('hidden');
+  continueChatBtn.classList.add('hidden');
 
   let analysisText = '';
 
@@ -613,6 +620,10 @@ async function doStreamSearch2(payload) {
                 renderAnalysis(analysisText, false);
                 setStatus(`✅ Готово`, 'success');
                 setLoading(false);
+                lastSearchPayload = payload;
+                lastSearchContext = buildSearchContext(payload, analysisText);
+                continueChatBtn.classList.remove('hidden');
+                initChat();
                 break;
               case 'error':
                 setStatus(`❌ ${escapeHtml(data.error)}`, 'error');
@@ -628,6 +639,15 @@ async function doStreamSearch2(payload) {
     setStatus(`❌ ${err.message}`, 'error');
     setLoading(false);
   }
+}
+
+function buildSearchContext(payload, analysis) {
+  return JSON.stringify({
+    query: payload.query,
+    collections: payload.collections,
+    revit_version: payload.revit_version,
+    analysis: analysis
+  });
 }
 
 // ─── Form submit ─────────────────────────────────────────────────────────
@@ -646,12 +666,13 @@ form.addEventListener('submit', async (e) => {
   analysisSection.classList.add('hidden');
   qdrantSection.classList.add('hidden');
   rvtdocsSection.classList.add('hidden');
+  chatSection.classList.add('hidden');
 
   const payload = { query: q, collections: selected, limit: 8, revit_version: version.value };
   setUrlParams();
   addHistory(q, selected, version.value);
 
-  await doStreamSearch2(payload);
+  await doStreamSearch(payload);
 });
 
 clearBtn.addEventListener('click', () => {
@@ -660,9 +681,19 @@ clearBtn.addEventListener('click', () => {
   analysisSection.classList.add('hidden');
   qdrantSection.classList.add('hidden');
   rvtdocsSection.classList.add('hidden');
+  chatSection.classList.add('hidden');
+  continueChatBtn.classList.add('hidden');
   setStatus('');
   query.value = '';
   query.focus();
+});
+
+continueChatBtn.addEventListener('click', () => {
+  chatSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setTimeout(() => {
+    chatInput.focus();
+    chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
+  }, 400);
 });
 
 query.addEventListener('keydown', (e) => {
@@ -670,6 +701,171 @@ query.addEventListener('keydown', (e) => {
     e.preventDefault();
     form.dispatchEvent(new Event('submit'));
   }
+});
+
+// ─── Chat ─────────────────────────────────────────────────────────────────
+
+function getChatKey() {
+  if (!lastSearchPayload) return null;
+  return CHAT_KEY + JSON.stringify({
+    q: lastSearchPayload.query,
+    cols: lastSearchPayload.collections,
+    v: lastSearchPayload.revit_version
+  });
+}
+
+function loadChatMessages() {
+  const key = getChatKey();
+  if (!key) return [];
+  try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
+}
+
+function saveChatMessages(messages) {
+  const key = getChatKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(messages));
+}
+
+function renderChatMessages(messages) {
+  if (!messages.length) {
+    chatMessages.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;text-align:center;padding:8px">Задайте уточняющий вопрос по результатам поиска</div>';
+    return;
+  }
+  chatMessages.innerHTML = messages.map((m, i) => {
+    if (m.role === 'system') return '';
+    const content = chatMarkedParse(m.content);
+    const searchNotice = m._searchQuery
+      ? `<div class="chat-msg-search">🔍 Выполнен дополнительный поиск: ${escapeHtml(m._searchQuery)}</div>`
+      : '';
+    return `<div class="chat-msg ${m.role}"><div class="msg-content">${content}</div>${searchNotice}</div>`;
+  }).join('');
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function initChat() {
+  chatSection.classList.remove('hidden');
+  const messages = loadChatMessages();
+  renderChatMessages(messages);
+  chatInput.disabled = false;
+  chatSendBtn.disabled = false;
+  chatInput.focus();
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text || chatSendBtn.disabled) return;
+
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  const messages = loadChatMessages();
+  messages.push({ role: 'user', content: text });
+  saveChatMessages(messages);
+  renderChatMessages(messages);
+
+  chatSendBtn.disabled = true;
+  chatInput.disabled = true;
+
+  messages.push({ role: 'assistant', content: '' });
+  const msgIdx = messages.length - 1;
+  saveChatMessages(messages);
+  renderChatMessages(messages);
+
+  try {
+    const payload = {
+      messages: messages.filter(m => m.content && !m._searchQuery && m.role !== 'system').slice(-20).map(m => ({ role: m.role, content: m.content })),
+      collections: lastSearchPayload.collections,
+      revit_version: lastSearchPayload.revit_version,
+      search_context: lastSearchContext
+    };
+
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      const detail = Array.isArray(err.detail) ? err.detail.map(d => d.msg || JSON.stringify(d)).join('; ') : (err.detail || `HTTP ${res.status}`);
+      throw new Error(detail);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+    let replyText = '';
+    let searchQuery = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const data = JSON.parse(dataStr);
+            if (currentEvent === 'token') {
+              replyText += data.token || '';
+              messages[msgIdx] = { role: 'assistant', content: replyText };
+              saveChatMessages(messages);
+              renderChatMessages(messages);
+            } else if (currentEvent === 'search_request') {
+              searchQuery = data.query;
+            } else if (currentEvent === 'status') {
+              // status update, ignore for now
+            } else if (currentEvent === 'done') {
+              if (searchQuery) {
+                messages[msgIdx]._searchQuery = searchQuery;
+                saveChatMessages(messages);
+                renderChatMessages(messages);
+              }
+            } else if (currentEvent === 'error') {
+              throw new Error(data.error);
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    messages[msgIdx] = { role: 'assistant', content: `❌ Ошибка: ${err.message}` };
+    saveChatMessages(messages);
+    renderChatMessages(messages);
+  }
+
+  chatSendBtn.disabled = false;
+  chatInput.disabled = false;
+  chatInput.focus();
+}
+
+chatSendBtn.addEventListener('click', sendChatMessage);
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+  setTimeout(() => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  }, 0);
+});
+
+chatClearBtn.addEventListener('click', () => {
+  const key = getChatKey();
+  if (key) localStorage.removeItem(key);
+  const empty = [];
+  saveChatMessages(empty);
+  renderChatMessages(empty);
 });
 </script>
 </body>

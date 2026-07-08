@@ -11,14 +11,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY}
+      - LLM_PROVIDER=routerai
+      - ROUTERAI_API_KEY=sk-isRQ7VX-uTljTmWLS_T_Nju8G9-UENh-
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash
-      - QDRANT_URL=http://host.docker.internal:6333
+      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+      - HTTP_TIMEOUT=180
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -38,11 +40,11 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - ROUTERAI_API_KEY=${ROUTERAI_API_KEY:-sk-your-key-here}
+      - LLM_PROVIDER=routerai
+      - ROUTERAI_API_KEY=sk-isRQ7VX-uTljTmWLS_T_Nju8G9-UENh-
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash
-      - QDRANT_URL=http://host.docker.internal:6333
+      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
+      - HTTP_TIMEOUT=180
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"

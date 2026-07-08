@@ -83,6 +83,28 @@ Detects when an API was introduced, changed, or removed.
 analyze(query="user question", context="search results JSON", instructions="")
 ```
 
+### `analyze_build_errors` — Build errors → fix recipes (VersionCompat)
+
+```python
+analyze_build_errors(
+    report_content="...",       # the build-errors-report.md text
+    report_path="",             # OR path to the .md file
+    research_apis=True          # research failing APIs via Qdrant/rvtdocs
+)
+```
+
+Takes a Revit multi-version build errors report, parses all CS errors, researches failing APIs lifecycle, and generates a structured fix plan with C# code for VersionCompat wrappers.
+
+**Example usage from Kilo:**
+
+```python
+@revit-navis-research analyze_build_errors(
+    report_path="D:\\DEV\\ReviBE\\build-reports\\logs\\20260708-084556\\build-errors-report.md"
+)
+```
+
+Output: JSON with `report_analyzed` (parsed errors summary), `apis_researched` count, and `fix_plan` (markdown with code snippets grouped by file).
+
 ## Strategy
 
 1. **Start with `research()`** — covers all sources in one call
