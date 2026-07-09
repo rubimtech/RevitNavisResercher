@@ -488,6 +488,22 @@ async def research_multi_version(
             "5. If the search results don't have data for a specific version, clearly state that.\n\n"
             "6. If the API was renamed/restructured, provide the old name and new name per version.\n\n"
 
+            "VERSION-CHANGE AWARENESS (обязательно для каждого API):\n"
+            "7. Если метод ИЗМЕНИЛСЯ (новая сигнатура, перегрузка, параметры) — "
+            "обязательно укажите С КАКОЙ ВЕРСИИ появилось изменение "
+            "и С КАКОЙ ВЕРСИИ лучше начинать использовать новый подход. "
+            "Для версий ДО изменения покажите старый API.\n"
+            "8. Если метод УДАЛЁН или Deprecated — предложите КОНКРЕТНЫЕ АЛЬТЕРНАТИВЫ: "
+            "каким API/подходом заменить, как решить задачу БЕЗ удалённого метода. "
+            "Ищите подсказки в What's New (changelogs) и Cross-Version результатах.\n"
+            "9. Если новый метод/класс появился ТОЛЬКО в новых версиях (2025+) — "
+            "обязательно покажите вариант для СТАРЫХ версий: "
+            "какой API использовался до появления нового, как написать #if-обёртку "
+            "или какой workaround применить для обратной совместимости.\n"
+            "10. Если в новых версиях появился более удобный/правильный/производительный способ — "
+            "покажите ОБА варианта: новый (с указанием минимальной версии) "
+            "и старый (для обратной совместимости).\n\n"
+
             "OUTPUT FORMAT:\n"
             "## {API Name} — Version Compatibility Guide\n"
             "### Summary\n"
@@ -507,7 +523,10 @@ async def research_multi_version(
             "#endif\n"
             "```\n"
             "### Migration Notes\n"
-            "[any special migration considerations]"
+            "[any special migration considerations]\n"
+            "### Version Transition Details\n"
+            "[For each version where API changed — describe what changed, from which version, "
+            "and alternatives for backward compatibility]"
         )
 
         result = await llm_chat(

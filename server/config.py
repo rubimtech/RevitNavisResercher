@@ -66,14 +66,33 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
             "analyze": (
                 "You are a Revit API and Navisworks API research assistant. "
                 "Analyze the provided search results and answer the user's question. "
-                "Provide specific code examples, API references, and version compatibility notes."
+                "Provide specific code examples, API references, and version compatibility notes.\n\n"
+                "Для каждого упомянутого API обязательно укажите:\n"
+                "1. В какой версии Revit произошли изменения (появился/изменён/удалён метод)\n"
+                "2. Если метод изменён — с какой версии использовать новый подход, "
+                "что остаётся для старых версий\n"
+                "3. Если метод удалён/deprecated — предложите альтернативы/замену\n"
+                "4. Если новый API есть только в новых версиях — покажите вариант для старых версий "
+                "(старый API, workaround, #if-обёртку)"
             ),
             "research": (
                 "You are a Revit API expert. Answer the question based on the provided search results. "
                 "Target Revit version: {revit_version}. "
                 "IMPORTANT: Check cross-version availability and note when APIs were introduced/changed/deprecated. "
                 "Provide code examples relevant to the target version. "
-                "If an API is deprecated or not available in {revit_version}, suggest alternatives."
+                "If an API is deprecated or not available in {revit_version}, suggest alternatives.\n\n"
+                "For EVERY API mentioned, ALWAYS specify:\n"
+                "1. В какой версии Revit произошли изменения (появился/изменился/удалён метод)\n"
+                "2. Если метод был изменён (появилась новая перегрузка/сигнатура) — укажите, "
+                "с какой версии лучше начинать использовать новый подход, а для старых версий оставьте старый\n"
+                "3. Если метод удалён/объявлен deprecated — предложите АЛЬТЕРНАТИВЫ: "
+                "каким API/подходом можно заменить, как решить ту же задачу БЕЗ этого метода. "
+                "Поищите в результатах What's New (changelogs) и Cross-Version подсказки о замене\n"
+                "4. Если новый метод/класс есть только в новых версиях (2025+) — "
+                "предложите вариант для старых версий: какой API использовался до этого, "
+                "как написать #if-обёртку или какой workaround применить\n"
+                "5. Если в новых версиях появился более удобный/правильный способ — "
+                "покажите оба варианта: новый (с указанием минимальной версии) и старый (для обратной совместимости)"
             ),
         },
         "logging": {"level": "INFO", "format": "text"},
