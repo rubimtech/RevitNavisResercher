@@ -37,4 +37,10 @@ logs/
 *.dll
 *.so
 
+# === Build / Data / Artifacts ===
+portable/
+qdrant_data/
+.playwright-mcp/
+cookies.txt
+
 kilo.json
