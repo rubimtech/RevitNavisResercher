@@ -118,6 +118,13 @@ SECTION_KEYWORDS = {
 }
 
 
+def _parse_version_heading(line: str) -> str | None:
+    m = re.match(r"^#\s+(.+)$", line.strip())
+    if m:
+        return m.group(1).strip()
+    return None
+
+
 def _parse_section_heading(line: str) -> str | None:
     m = re.match(r"^##\s+(.+)$", line.strip())
     if m:
@@ -143,7 +150,86 @@ def _classify_section(heading: str) -> str:
     return f"Section: {heading}"
 
 
-def _chunk_markdown(text: str, version: str) -> list[dict[str, str]]:
+def _chunk_migration_guide(text: str) -> list[dict[str, str]]:
+    lines = text.split("\n")
+    chunks: list[dict[str, str]] = []
+    current_section: str | None = None
+    current_lines: list[str] = []
+    collecting = False
+
+    def _flush():
+        nonlocal collecting, current_lines
+        if not collecting or not current_lines:
+            return
+        content = "\n".join(current_lines).strip()
+        if not content:
+            return
+        first_line = content.split("\n")[0][:120]
+
+        version = "cross-version"
+        if current_section:
+            sl = current_section.lower()
+            if "elementid" in sl:
+                version = "2022-2027"
+            elif "parameter" in sl and ("forge" in sl or "migration" in sl):
+                version = "2022-2027"
+            elif "topography" in sl or "toposolid" in sl:
+                version = "2024"
+            elif "zone" in sl or "genericzone" in sl:
+                version = "2026-2027"
+            elif "rebar" in sl:
+                version = "2026-2027"
+            elif "energy" in sl:
+                version = "2023-2027"
+            elif "electrical" in sl:
+                version = "2025-2026"
+            elif "geometry" in sl:
+                version = "2023-2026"
+            elif "mep" in sl:
+                version = "2025-2026"
+            elif "numbering" in sl:
+                version = "2027"
+            elif "cefsharp" in sl:
+                version = "2022-2027"
+            elif "add-in" in sl or "dependency" in sl:
+                version = "2026-2027"
+            elif "net" in sl and "framework" in sl:
+                version = "2022-2027"
+            elif "net " in sl or ".net" in sl:
+                version = "2022-2027"
+            elif "cloud" in sl:
+                version = "2027"
+
+        chunks.append({
+            "version": version,
+            "section": f"Migration Guide — {current_section}" if current_section else "Migration Guide",
+            "subsection": current_section or first_line,
+            "content": content,
+            "summary": f"API Migration Guide — {current_section or first_line} (versions: {version})",
+        })
+
+    for line in lines:
+        if not line.strip():
+            if collecting:
+                current_lines.append(line)
+            continue
+
+        section_h = _parse_section_heading(line)
+        if section_h:
+            _flush()
+            current_section = section_h
+            current_lines = [line]
+            collecting = True
+            continue
+
+        if collecting:
+            current_lines.append(line)
+
+    _flush()
+    return chunks
+
+
+def _chunk_whatsnew(text: str, version: str) -> list[dict[str, str]]:
     lines = text.split("\n")
     chunks: list[dict[str, str]] = []
 
@@ -281,9 +367,19 @@ async def main() -> None:
         m = re.search(r"(\d{4})", fp.stem)
         version = m.group(1) if m else "unknown"
         text = fp.read_text(encoding="utf-8")
-        chunks = _chunk_markdown(text, version)
+        chunks = _chunk_whatsnew(text, version)
         _logger.info("  %s → %d chunks (Revit %s)", fp.name, len(chunks), version)
         all_chunks.extend(chunks)
+
+    # Also ingest API-MIGRATION-GUIDE.md
+    migration_fp = whatsnew_dir / "API-MIGRATION-GUIDE.md"
+    if migration_fp.is_file():
+        migration_text = migration_fp.read_text(encoding="utf-8")
+        migration_chunks = _chunk_migration_guide(migration_text)
+        _logger.info("  API-MIGRATION-GUIDE.md → %d chunks (cross-version)", len(migration_chunks))
+        all_chunks.extend(migration_chunks)
+    else:
+        _logger.warning("API-MIGRATION-GUIDE.md not found in %s", whatsnew_dir)
 
     _logger.info("Total chunks: %d", len(all_chunks))
 

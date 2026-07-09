@@ -22,6 +22,7 @@ import server.tools_qdrant  # noqa: F401
 import server.tools_rvtdocs  # noqa: F401
 import server.tools_revitapidocs  # noqa: F401
 import server.tools_analyze  # noqa: F401
+import server.tools_sqlite  # noqa: F401
 
 _logger: logging.Logger = None  # type: ignore[assignment]
 
@@ -76,7 +77,7 @@ async def amain(argv: Optional[list[str]] = None) -> None:
             pass  # Windows doesn't support add_signal_handler
 
     _logger.info("🚀 Starting RevitNavis MCP server (transport=%s)", transport)
-    _logger.info("   Qdrant: %s", get_cfg("qdrant", "url", default="https://d9e0f9d73f7a.vps.myjino.ru:6333"))
+    _logger.info("   Qdrant: %s", get_cfg("qdrant", "url", default="http://localhost:6333"))
     _logger.info("   LLM provider: %s", get_cfg("llm", "provider", default="routerai"))
 
     if get_cfg("llm", "provider") == "ollama":
@@ -88,7 +89,6 @@ async def amain(argv: Optional[list[str]] = None) -> None:
     else:
         _logger.info("   RouterAI base: %s", get_cfg("llm", "base_url"))
         _logger.info("   Models: embed=%s, llm=%s", get_cfg("llm", "embedding_model"), get_cfg("llm", "chat_model"))
-        import os
         api_key = os.environ.get("ROUTERAI_API_KEY", "")
         if not api_key or api_key in ("sk-placeholder", "sk-your-key-here"):
             _logger.warning("ROUTERAI_API_KEY not set or is a placeholder — LLM tools will fail")
@@ -101,12 +101,16 @@ async def amain(argv: Optional[list[str]] = None) -> None:
         mcp.settings.port = port
         try:
             await mcp.run_sse_async()
+        except KeyboardInterrupt:
+            _logger.info("Received KeyboardInterrupt, shutting down...")
         finally:
             await shutdown()
     else:
         _logger.info("   stdio mode — waiting for MCP messages...")
         try:
             await mcp.run_stdio_async()
+        except KeyboardInterrupt:
+            _logger.info("Received KeyboardInterrupt, shutting down...")
         finally:
             await shutdown()
 

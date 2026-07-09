@@ -68,14 +68,3 @@ async def retry_async(
             else:
                 raise
     raise last_exc  # type: ignore[union-attr]
-
-
-_MODEL_CONFIG = {"str_strip_whitespace": True}
-
-# Re-export pydantic helpers for tools
-from pydantic import BaseModel, ConfigDict, Field  # noqa: F401, E402
-
-
-class BaseModelConfig(BaseModel):
-    """Base pydantic model with whitespace stripping."""
-    model_config = ConfigDict(str_strip_whitespace=True)

@@ -1,0 +1,115 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""
+RevitNavisResearcher — PyInstaller spec for portable Windows .exe.
+
+Build command:
+    pyinstaller portable.spec
+"""
+
+from pathlib import Path
+
+ROOT = Path.cwd().resolve()
+
+a = Analysis(
+    [str(ROOT / "portable" / "server.py")],
+    pathex=[str(ROOT)],
+    binaries=[],
+    datas=[
+        (str(ROOT / "mcp_config.yaml"), "."),
+        (str(ROOT / ".env.example"), "."),
+    ],
+    hiddenimports=[
+        "mcp",
+        "qdrant_client",
+        "qdrant_client.local",
+        "qdrant_client.async_qdrant_client",
+        "qdrant_client.async_client_base",
+        "qdrant_client.parallel_processor",
+        "qdrant_client.uploader",
+        "qdrant_client.conversions",
+        "qdrant_client.embed",
+        "httpx",
+        "aiosqlite",
+        "yaml",
+        "dotenv",
+        "uvicorn",
+        "uvicorn.logging",
+        "uvicorn.loops.asyncio",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets.auto",
+        "fastapi",
+        "pydantic",
+        "starlette",
+        "mcp.server.fastmcp",
+        "mcp.server.models",
+        "mcp.server.stdio",
+        "mcp.server.sse",
+        "bs4",
+        "lxml",
+        "certifi",
+        "hpack",
+        "h2",
+        "sniffio",
+        "anyio",
+        "web_app",
+        "web_app.cache",
+        "web_app.clients",
+        "web_app.config",
+        "web_app.embeddings",
+        "web_app.llm",
+        "web_app.models",
+        "web_app.routes",
+        "web_app.search",
+        "server",
+        "server.app",
+        "server.config",
+        "server.llm",
+        "server.logging_setup",
+        "server.mcp_instance",
+        "server.rvtdocs_parser",
+        "server.state",
+        "server.tools_analyze",
+        "server.tools_qdrant",
+        "server.tools_revitapidocs",
+        "server.tools_rvtdocs",
+        "server.tools_sqlite",
+        "server.utils",
+        "portable",
+        "portable.paths",
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        "tkinter", "PyQt5", "PySide2", "PySide6",
+        "matplotlib", "scipy", "pandas",
+        "notebook", "jupyter", "setuptools", "pip",
+        "test", "unittest",
+    ],
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name="RevitNavisResearch",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)

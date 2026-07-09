@@ -1,17 +1,21 @@
 """
-revitapidocs.com search and combined Revit API search tools.
+revitapidocs.com search tools — replaced by SQLite queries against revit_api.db.
+Tool names and signatures preserved for backward compatibility.
 """
 
 import json
 import logging
-import re
-import time
+from pathlib import Path
+from typing import Optional
+
+import aiosqlite
 
 from server.mcp_instance import mcp
-from server.state import get_http
 from server.utils import format_error, truncate_response
 
 _logger = logging.getLogger("revitnavis")
+
+_DB_PATH = Path(__file__).resolve().parent.parent / "revit_api.db"
 
 _SEARCH_RESULT_TYPES = [
     "Class", "Constructor", "Method", "Methods",
@@ -19,101 +23,118 @@ _SEARCH_RESULT_TYPES = [
 ]
 
 
-async def _search_revitapidocs_com(query: str, max_results: int = 10) -> list[dict]:
-    """Search Revit API on revitapidocs.com via Construct.io autocomplete."""
-    try:
-        client = get_http()
-        timestamp = int(time.time() * 1000)
-        encoded_query = re.sub(r"[^a-zA-Z0-9_ .]", "", query).strip().replace(" ", "+")
-        url = (
-            f"https://ac.cnstrc.com/autocomplete/{encoded_query}"
-            f"?query={encoded_query}"
-            f"&autocomplete_key=key_yyAC1mb0cTgZTwSo"
-            f"&c=ciojs-2.1233.4&num_results={max_results}"
-            f"&i=d705c917-8e5a-491f-8bc4-9b43e78de48c&s=10&_dt={timestamp}"
-        )
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
+async def _get_db() -> aiosqlite.Connection:
+    db = await aiosqlite.connect(str(_DB_PATH))
+    db.row_factory = aiosqlite.Row
+    return db
 
-        results: list[dict] = []
-        for item in (data.get("sections") or {}).get("Products") or []:
-            title: str = item.get("value", "")
-            raw_url: str = (item.get("data") or {}).get("url", "")
-            result_type = _parse_revitapidocs_type(title)
-            if result_type == "Members":
+
+async def _search_revitapidocs_com(query: str, max_results: int = 10) -> list[dict]:
+    """SQLite-based replacement for revitapidocs.com autocomplete search."""
+    db = await _get_db()
+    try:
+        like = f"%{query}%"
+        sql = """
+            SELECT DISTINCT a.href, a.title, a.short_title, a.entry_type, a.namespace
+            FROM api_entries a
+            WHERE a.title LIKE ? OR a.short_title LIKE ?
+            ORDER BY a.entry_type, a.title
+            LIMIT ?
+        """
+        cursor = await db.execute(sql, (like, like, max_results))
+        rows = await cursor.fetchall()
+        await cursor.close()
+
+        results = []
+        for r in rows:
+            entry_type = r["entry_type"] or "Unknown"
+            if entry_type == "Members":
                 continue
-            slug = raw_url.split(".")[0] if "." in raw_url else raw_url
             results.append({
-                "title": title,
-                "type": result_type,
-                "url": slug,
-                "source": "revitapidocs.com",
+                "title": r["title"],
+                "type": entry_type,
+                "url": r["href"],
+                "source": "revit_api.db",
             })
         return results
     except Exception as e:
-        _logger.warning("revitapidocs.com search failed: %s", e)
+        _logger.warning("SQL revitapidocs search failed: %s", e)
         return []
-
-
-def _parse_revitapidocs_type(title: str) -> str:
-    parts = title.strip().split()
-    last = parts[-1] if parts else ""
-    for t in (*_SEARCH_RESULT_TYPES, "Members"):
-        if last == t:
-            return t
-    return "Unknown"
+    finally:
+        await db.close()
 
 
 async def _search_both_sources(
     query: str, version: str = "2024", limit: int = 10
 ) -> list[dict]:
-    """Search both rvtdocs.com and revitapidocs.com, deduplicate by URL."""
-    rvtdocs_results: list[dict] = []
+    """Search both api_entries (all) and version-filtered entries, deduplicate by href."""
+    db = await _get_db()
     try:
-        client = get_http()
-        r = await client.post(
-            "https://rvtdocs.com/search/api/search",
-            json={"query": query, "current_version": version, "include_description": True},
-        )
-        r.raise_for_status()
-        data = r.json()
-        for item in data.get("current_version_results", [])[:limit]:
-            rvtdocs_results.append({
-                "title": item.get("title", ""),
-                "type": item.get("type", ""),
-                "namespace": item.get("namespace", ""),
-                "description": item.get("description", ""),
-                "url": item.get("url", ""),
-                "source": "rvtdocs.com",
+        like = f"%{query}%"
+
+        sql_all = """
+            SELECT DISTINCT a.href, a.title, a.short_title, a.entry_type, a.namespace, a.description
+            FROM api_entries a
+            WHERE a.title LIKE ? OR a.short_title LIKE ?
+            ORDER BY a.entry_type, a.title
+            LIMIT ?
+        """
+        cursor = await db.execute(sql_all, (like, like, limit))
+        all_rows = await cursor.fetchall()
+        await cursor.close()
+
+        sql_versioned = """
+            SELECT DISTINCT a.href, a.title, a.short_title, a.entry_type, a.namespace, a.description
+            FROM api_entries a
+            JOIN api_entry_versions v ON v.href = a.href
+            WHERE (a.title LIKE ? OR a.short_title LIKE ?) AND v.version = ?
+            ORDER BY a.entry_type, a.title
+            LIMIT ?
+        """
+        cursor = await db.execute(sql_versioned, (like, like, version, limit))
+        versioned_rows = await cursor.fetchall()
+        await cursor.close()
+
+        seen_hrefs: set[str] = set()
+        combined: list[dict] = []
+
+        for r in versioned_rows:
+            seen_hrefs.add(r["href"])
+            combined.append({
+                "title": r["title"],
+                "type": r["entry_type"] or "",
+                "namespace": r["namespace"] or "",
+                "description": (r["description"] or "")[:300],
+                "url": r["href"],
+                "source": f"revit_api.db (v{version})",
             })
+
+        for r in all_rows:
+            if r["href"] not in seen_hrefs:
+                seen_hrefs.add(r["href"])
+                combined.append({
+                    "title": r["title"],
+                    "type": r["entry_type"] or "",
+                    "namespace": r["namespace"] or "",
+                    "description": (r["description"] or "")[:300],
+                    "url": r["href"],
+                    "source": "revit_api.db",
+                })
+
+        type_order = {t: i for i, t in enumerate(_SEARCH_RESULT_TYPES)}
+        combined.sort(key=lambda x: type_order.get(x.get("type", ""), 99))
+        return combined[:limit]
     except Exception as e:
-        _logger.warning("rvtdocs.com search failed: %s", e)
-
-    rap_results = await _search_revitapidocs_com(query, limit * 2)
-
-    seen_urls: set[str] = set()
-    combined: list[dict] = []
-    for r in rvtdocs_results:
-        key = r["url"]
-        if key not in seen_urls:
-            seen_urls.add(key)
-            combined.append(r)
-    for r in rap_results:
-        key = r["url"]
-        if key not in seen_urls:
-            seen_urls.add(key)
-            combined.append(r)
-
-    type_order = {t: i for i, t in enumerate(_SEARCH_RESULT_TYPES)}
-    combined.sort(key=lambda x: type_order.get(x.get("type", ""), 99))
-    return combined[:limit]
+        _logger.warning("SQL combined search failed: %s", e)
+        return []
+    finally:
+        await db.close()
 
 
 @mcp.tool(
     name="revitapidocs_search",
     annotations={
-        "title": "Search Revit API on revitapidocs.com",
+        "title": "Search Revit API on revitapidocs.com (via local DB)",
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
@@ -121,7 +142,7 @@ async def _search_both_sources(
     },
 )
 async def revitapidocs_search(query: str, limit: int = 10) -> str:
-    """Search Revit API documentation on revitapidocs.com using Construct.io autocomplete."""
+    """Search Revit API documentation on revitapidocs.com (powered by local SQLite DB)."""
     try:
         results = await _search_revitapidocs_com(query, limit)
         response = {
@@ -138,7 +159,7 @@ async def revitapidocs_search(query: str, limit: int = 10) -> str:
 @mcp.tool(
     name="revit_api_search",
     annotations={
-        "title": "Search Revit API (rvtdocs + revitapidocs combined)",
+        "title": "Search Revit API (local DB combined search)",
         "readOnlyHint": True,
         "destructiveHint": False,
         "idempotentHint": True,
@@ -150,7 +171,7 @@ async def revit_api_search(
     version: str = "2024",
     limit: int = 10,
 ) -> str:
-    """Search Revit API across both rvtdocs.com and revitapidocs.com with deduplication."""
+    """Search Revit API across all sources (powered by local SQLite DB)."""
     try:
         results = await _search_both_sources(query, version, limit)
         response = {

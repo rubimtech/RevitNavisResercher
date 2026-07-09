@@ -21,8 +21,12 @@
         "ROUTERAI_BASE_URL": "https://routerai.ru/api/v1",
         "EMBEDDING_MODEL": "baai/bge-m3",
         "LLM_MODEL": "deepseek/deepseek-v4-flash",
-        "QDRANT_URL": "http://d9e0f9d73f7a.vps.myjino.ru:6333"
+        "QDRANT_URL": "${QDRANT_URL}"
       }
+    },
+    "revit-navis-research-docker": {
+      "type": "remote",
+      "url": "http://localhost:7400/sse"
     }
   }
 }

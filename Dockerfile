@@ -39,7 +39,9 @@ COPY mcp_server.py .
 COPY server/ server/
 COPY mcp_config.yaml .
 COPY .env .env
-COPY revit_codebase.db .
+# DB files are mounted as volumes via docker-compose.yml
+# COPY revit_codebase.db .
+# COPY revit_api.db .
 
 # Ownership for non-root user
 RUN chown -R revitnavis:revitnavis /app
@@ -48,7 +50,7 @@ RUN chown -R revitnavis:revitnavis /app
 USER revitnavis
 
 # Port for SSE transport (optional, stdio is default)
-EXPOSE 8000
+EXPOSE 7400
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
@@ -58,6 +60,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 # Override to "stdio" for CLI / kilo integration
 ENV MCP_TRANSPORT=sse
 ENV MCP_HOST=0.0.0.0
-ENV MCP_PORT=8000
+ENV MCP_PORT=7400
 
 ENTRYPOINT ["python", "mcp_server.py"]

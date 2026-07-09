@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+from portable.paths import get_base_dir
+
 
 def deep_merge(base: dict, override: dict) -> None:
     for key, value in override.items():
@@ -19,7 +21,7 @@ def set_nested(d: dict, keys: list[str], value: Any) -> None:
 
 
 def load_config() -> dict[str, Any]:
-    cfg_path = Path(__file__).parent.parent / "mcp_config.yaml"
+    cfg_path = get_base_dir() / "mcp_config.yaml"
     cfg: dict[str, Any] = {
         "llm": {
             "provider": "routerai",
@@ -34,7 +36,7 @@ def load_config() -> dict[str, Any]:
             "embedding_model": "nomic-embed-text",
             "chat_model": "qwen2.5-coder:7b",
         },
-        "qdrant": {"url": "https://d9e0f9d73f7a.vps.myjino.ru:6333"},
+        "qdrant": {"location": "qdrant_data"},
         "http_client": {"timeout_seconds": 60, "max_retries": 3, "retry_delay_seconds": 1.0, "retry_backoff_factor": 2.0},
         "output": {"character_limit": 25000, "truncate_payload": 400, "truncate_syntax": 200},
         "prompts": {

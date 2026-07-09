@@ -30,14 +30,17 @@ COPY web_app/ web_app/
 COPY mcp_config.yaml .
 COPY static/ static/
 COPY .env .env
+# DB files are mounted as volumes via docker-compose.yml
+# COPY revit_codebase.db .
+# COPY revit_api.db .
 
 RUN chown -R revitnavis:revitnavis /app
 
 USER revitnavis
 
-EXPOSE 8080
+EXPOSE 7401
 
 ENV WEB_HOST=0.0.0.0
-ENV WEB_PORT=8080
+ENV WEB_PORT=7401
 
 ENTRYPOINT ["python", "web_app.py"]

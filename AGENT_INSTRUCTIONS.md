@@ -193,8 +193,8 @@ Agent:
 docker compose up -d
 ```
 
-- **MCP-сервер** — SSE endpoint на `http://localhost:8000/mcp`
-- **Web App** — FastAPI + фронтенд на `http://localhost:8080`
+- **MCP-сервер** — SSE endpoint на `http://localhost:7400/mcp`
+- **Web App** — FastAPI + фронтенд на `http://localhost:7401`
 - **Qdrant** — dashboard на `http://localhost:6333/dashboard`
 
 Если Qdrant запущен на удалённом хосте, укажите `QDRANT_URL` в `.env`:
@@ -254,7 +254,7 @@ Ollama должна быть запущена (`ollama serve`) до старта
 python web_app.py
 
 # Открыть в браузере
-http://localhost:8080
+http://localhost:7401
 ```
 
 Возможности:

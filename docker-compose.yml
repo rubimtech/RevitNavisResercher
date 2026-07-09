@@ -9,23 +9,26 @@ services:
       dockerfile: Dockerfile
     container_name: revitnavis-mcp
     ports:
-      - "8000:8000"
+      - "7400:7400"
+    env_file:
+      - .env
     environment:
       - LLM_PROVIDER=routerai
-      - ROUTERAI_API_KEY=sk-isRQ7VX-uTljTmWLS_T_Nju8G9-UENh-
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash
-      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
+      - MCP_PORT=7400
       - HTTP_TIMEOUT=180
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./revit_codebase.db:/app/revit_codebase.db
+      - ./revit_api.db:/app/revit_api.db
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost',8000)); s.close(); exit(0)"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost',7400)); s.close(); exit(0)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,13 +41,17 @@ services:
       dockerfile: Dockerfile.web
     container_name: revitnavis-web
     ports:
-      - "8080:8080"
+      - "7401:7401"
+    env_file:
+      - .env
+    volumes:
+      - ./revit_codebase.db:/app/revit_codebase.db
+      - ./revit_api.db:/app/revit_api.db
     environment:
       - LLM_PROVIDER=routerai
-      - ROUTERAI_API_KEY=sk-isRQ7VX-uTljTmWLS_T_Nju8G9-UENh-
       - ROUTERAI_BASE_URL=https://routerai.ru/api/v1
       - EMBEDDING_MODEL=baai/bge-m3
       - LLM_MODEL=deepseek/deepseek-v4-flash
-      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
       - HTTP_TIMEOUT=180
+      - WEB_PORT=7401
     restart: unless-stopped

@@ -7,7 +7,7 @@ class SearchRequest(BaseModel):
     query: str = Field(..., min_length=2, max_length=1000, description="Ваш вопрос по Revit API / Navisworks API")
     collections: list[str] = Field(default=["revit_api_knowledge"], description="Коллекции Qdrant для поиска")
     limit: int = Field(default=8, ge=1, le=30)
-    revit_version: str = Field(default="2024", description="Версия Revit (2021-2027)")
+    revit_version: str = Field(default="all", description="Версия Revit (all = 2022-2027)")
 
 
 class AnalyzeRequest(BaseModel):
@@ -28,7 +28,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(..., min_length=1, description="История чата")
     collections: list[str] = Field(default=["revit_api_knowledge"])
-    revit_version: str = Field(default="2024")
+    revit_version: str = Field(default="all")
     search_context: Optional[str] = Field(default=None, description="Контекст предыдущего поиска (results + analysis)")
 
     # Limit how many messages we accept to avoid abuse

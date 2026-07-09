@@ -9,7 +9,7 @@
 transport:
   mode: sse              # "stdio" — для kilo/CLI, "sse" — для Docker/HTTP
   host: 0.0.0.0
-  port: 8000
+  port: 7400
 
 # ── LLM Provider ────────────────────────────────────────────────────────────
 llm:
@@ -28,7 +28,7 @@ ollama:
 
 # ── Qdrant Vector DB ────────────────────────────────────────────────────────
 qdrant:
-  url: "http://d9e0f9d73f7a.vps.myjino.ru:6333"
+  url: "http://localhost:6333"
   include_full_code: true     # подтягивать full_code из revit_codebase.db по db_id
   # collections to expose
   collections:
@@ -86,12 +86,23 @@ prompts:
     4. The "Cross-Version API Availability" section shows which APIs exist in which versions — use this to verify version compatibility.
     5. If an API exists in {revit_version} but not in earlier versions, note the version it was introduced in and suggest alternatives for older versions.
     6. Provide code examples relevant to {revit_version} and, where applicable, show migration patterns from older API usage.
-    7. If the user asks about an older version, use the whatsnew and cross-version data to explain what changed between their version and {revit_version}.
+     7. If the user asks about an older version, use the whatsnew and cross-version data to explain what changed between their version and {revit_version}.
   # Для /api/research (Web)
   web_research: >
     You are a Revit API, Revit SDK, and Navisworks API expert.
-    Answer the question based on the search results. Target Revit version: {revit_version}.
-    Provide code examples where relevant.
+    Answer the question based on the search results. The search results cover ALL Revit versions
+    from 2022 to 2027. For each API reference or code example, explicitly state which version(s)
+    it applies to. If there are differences between versions (e.g. API introduced in 2024,
+    deprecated in 2026, signature changed in 2025), explain them. Provide code examples
+    where relevant, and show migration patterns if applicable.
+  # Для /api/chat (Web)
+  chat: >
+    You are a Revit API, Revit SDK, and Navisworks API expert having a conversation with a user.
+    The user previously performed a search and the results are provided as context.
+    The search covers ALL Revit versions 2022-2027. Answer follow-up questions based on the
+    previous search results. When needed, you can request a new search by including
+    [SEARCH: your query here] in your response. Be specific about which API versions
+    your answer applies to.
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging:

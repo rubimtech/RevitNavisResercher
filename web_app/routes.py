@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -16,8 +15,17 @@ from .llm import llm_chat_full, llm_chat_stream
 from .models import ChatRequest, ResearchWithKeyRequest, SearchRequest
 from .search import _search_rvtdocs, build_context, search_qdrant
 
+from portable.paths import get_base_dir
+
+
+def _safe_format(template: str, **kwargs) -> str:
+    try:
+        return template.format(**kwargs)
+    except KeyError:
+        return template
+
 _logger: logging.Logger = None
-STATIC_DIR = Path(__file__).parent.parent / "static"
+STATIC_DIR = get_base_dir() / "static"
 
 
 @asynccontextmanager
@@ -54,13 +62,22 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index():
     index_path = STATIC_DIR / "index.html"
     if index_path.exists():
         content = index_path.read_text(encoding="utf-8")
         return HTMLResponse(content)
     return HTMLResponse("<h1>RevitNavis Researcher</h1><p>Frontend not found. Run with static/index.html</p>")
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page():
+    chat_path = STATIC_DIR / "chat.html"
+    if chat_path.exists():
+        content = chat_path.read_text(encoding="utf-8")
+        return HTMLResponse(content)
+    return HTMLResponse("<h1>Chat page not found</h1>")
 
 
 @app.get("/api/config")
@@ -72,7 +89,7 @@ async def api_config():
             {"name": "Revit_SDK_Samples", "label": "Revit SDK Samples"},
             {"name": "navisworks_api_bge", "label": "Navisworks API"},
         ],
-        "revit_versions": ["2021", "2022", "2023", "2024", "2025", "2026", "2027"],
+        "revit_versions": ["all (2022-2027)"],
         "llm_provider": provider,
         "llm_model": get_cfg("ollama" if provider == "ollama" else "llm", "chat_model"),
         "embedding_model": get_cfg("ollama" if provider == "ollama" else "llm", "embedding_model"),
@@ -98,12 +115,12 @@ async def api_research(req: SearchRequest):
     try:
         qdrant_results, rvtdocs_results, context = await build_context(req)
 
-        system = get_cfg("prompts", "web_research", default="").format(
-            revit_version=req.revit_version,
-        )
         analysis = await llm_chat_full(
             [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
-            system=system,
+            system=_safe_format(
+                get_cfg("prompts", "web_research", default=""),
+                revit_version=req.revit_version,
+            ),
         )
         return {
             "query": req.query, "revit_version": req.revit_version, "collections": req.collections,
@@ -136,16 +153,18 @@ async def api_research_stream(req: SearchRequest):
             }
             yield f"event: qdrant\ndata: {json.dumps(qdrant_json, ensure_ascii=False)}\n\n"
 
-            yield "event: status\ndata: {\"msg\":\"Поиск на rvtdocs.com...\"}\n\n"
+            yield "event: status\ndata: {\"msg\":\"Поиск в локальной БД...\"}\n\n"
             rvtdocs_json = {
                 "rvtdocs_count": rvtdocs_results.get("count", 0),
                 "rvtdocs_results": rvtdocs_results.get("results", [])[:5],
+                "source": "revit_api.db (local)",
             }
             yield f"event: rvtdocs\ndata: {json.dumps(rvtdocs_json, ensure_ascii=False)}\n\n"
 
             yield "event: status\ndata: {\"msg\":\"Генерация ответа...\"}\n\n"
 
-            system = get_cfg("prompts", "web_research", default="").format(
+            system = _safe_format(
+                get_cfg("prompts", "web_research", default=""),
                 revit_version=req.revit_version,
             )
             async for chunk in llm_chat_stream(
@@ -175,12 +194,12 @@ async def api_research_with_key(req: ResearchWithKeyRequest):
 
         qdrant_results, rvtdocs_results, context = await build_context(req, api_key=req.api_key)
 
-        system = get_cfg("prompts", "web_research", default="").format(
-            revit_version=req.revit_version,
-        )
         analysis = await llm_chat_full(
             [{"role": "user", "content": f"## Question\n{req.query}\n\n## Search Results\n{context}"}],
-            system=system,
+            system=_safe_format(
+                get_cfg("prompts", "web_research", default=""),
+                revit_version=req.revit_version,
+            ),
             api_key=req.api_key,
         )
         return {
@@ -214,16 +233,18 @@ async def api_research_with_key_stream(req: ResearchWithKeyRequest):
             }
             yield f"event: qdrant\ndata: {json.dumps(qdrant_json, ensure_ascii=False)}\n\n"
 
-            yield "event: status\ndata: {\"msg\":\"Поиск на rvtdocs.com...\"}\n\n"
+            yield "event: status\ndata: {\"msg\":\"Поиск в локальной БД...\"}\n\n"
             rvtdocs_json = {
                 "rvtdocs_count": rvtdocs_results.get("count", 0),
                 "rvtdocs_results": rvtdocs_results.get("results", [])[:5],
+                "source": "revit_api.db (local)",
             }
             yield f"event: rvtdocs\ndata: {json.dumps(rvtdocs_json, ensure_ascii=False)}\n\n"
 
             yield "event: status\ndata: {\"msg\":\"Генерация ответа...\"}\n\n"
 
-            system = get_cfg("prompts", "web_research", default="").format(
+            system = _safe_format(
+                get_cfg("prompts", "web_research", default=""),
                 revit_version=req.revit_version,
             )
             async for chunk in llm_chat_stream(
@@ -274,7 +295,10 @@ async def api_chat(req: ChatRequest):
         if req.search_context:
             context_parts.append(req.search_context)
 
-        system = get_cfg("prompts", "chat", default="").format(revit_version=req.revit_version)
+        system = _safe_format(
+            get_cfg("prompts", "chat", default=""),
+            revit_version=req.revit_version,
+        )
 
         reply = await llm_chat_full(messages, system=system)
 
@@ -327,7 +351,10 @@ async def api_chat_stream(req: ChatRequest):
         try:
             messages = [{"role": m.role, "content": m.content} for m in req.trimmed_messages]
 
-            system = get_cfg("prompts", "chat", default="").format(revit_version=req.revit_version)
+            system = _safe_format(
+                get_cfg("prompts", "chat", default=""),
+                revit_version=req.revit_version,
+            )
 
             if req.search_context:
                 system = system + "\n\nPrevious search results:\n" + req.search_context

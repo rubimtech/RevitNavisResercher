@@ -9,15 +9,17 @@ from typing import Any, Optional
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from portable.paths import get_base_dir
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "mcp_config.yaml"
+load_dotenv(get_base_dir() / ".env")
+
+DEFAULT_CONFIG_PATH = get_base_dir() / "mcp_config.yaml"
 
 
 def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     """Load YAML config, merge with env overrides (env has priority)."""
     cfg: dict[str, Any] = {
-        "transport": {"mode": "stdio", "host": "0.0.0.0", "port": 8000},
+        "transport": {"mode": "stdio", "host": "0.0.0.0", "port": 7400},
         "llm": {
             "provider": "routerai",
             "base_url": "https://routerai.ru/api/v1",
@@ -32,7 +34,7 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
             "chat_model": "qwen2.5-coder:7b",
         },
         "qdrant": {
-            "url": "https://d9e0f9d73f7a.vps.myjino.ru:6333",
+            "url": "http://localhost:6333",
             "include_full_code": False,
             "collections": [
                 {"name": "revit_api_knowledge", "description": "Revit API documentation"},
@@ -40,6 +42,10 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
                 {"name": "navisworks_api_bge", "description": "Navisworks API documentation"},
                 {"name": "revit_api_whatsnew", "description": "Revit API What's New changelogs (2022-2026)"},
             ],
+        },
+        "constructio": {
+            "autocomplete_key": "",
+            "client_id": "",
         },
         "http_client": {
             "timeout_seconds": 30,
@@ -91,6 +97,8 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
         "ollama.embedding_model": ("OLLAMA_EMBEDDING_MODEL", None),
         "ollama.chat_model": ("OLLAMA_CHAT_MODEL", None),
         "qdrant.url": ("QDRANT_URL", None),
+        "constructio.autocomplete_key": ("CONSTRUCTIO_AUTOCOMPLETE_KEY", None),
+        "constructio.client_id": ("CONSTRUCTIO_CLIENT_ID", None),
         "http_client.timeout_seconds": ("HTTP_TIMEOUT", int),
         "output.character_limit": ("CHARACTER_LIMIT", int),
     }

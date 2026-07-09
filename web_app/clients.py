@@ -4,6 +4,7 @@ from typing import Optional
 import httpx
 from qdrant_client import AsyncQdrantClient
 
+from portable.paths import get_qdrant_dir
 from .config import get_cfg
 
 _qdrant: Optional[AsyncQdrantClient] = None
@@ -13,8 +14,7 @@ _http: Optional[httpx.AsyncClient] = None
 def get_qdrant() -> AsyncQdrantClient:
     global _qdrant
     if _qdrant is None:
-        url = get_cfg("qdrant", "url", default=os.environ.get("QDRANT_URL", "https://d9e0f9d73f7a.vps.myjino.ru:6333"))
-        _qdrant = AsyncQdrantClient(url=url)
+        _qdrant = AsyncQdrantClient(location=str(get_qdrant_dir()))
     return _qdrant
 
 

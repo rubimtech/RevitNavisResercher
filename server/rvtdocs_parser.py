@@ -13,7 +13,7 @@ from server.state import get_http
 
 async def fetch_and_parse_rvtdocs_page(url: str) -> dict:
     """Fetch an rvtdocs.com page and extract structured content as markdown."""
-    client = get_http()
+    client = await get_http()
     base_url = url if url.startswith("http") else f"https://rvtdocs.com{url}"
     parsed = urlparse(base_url)
     if parsed.netloc not in ("rvtdocs.com", "www.rvtdocs.com"):
@@ -96,7 +96,6 @@ async def fetch_and_parse_rvtdocs_page(url: str) -> dict:
             md_parts.append(md_table)
 
     markdown = "\n".join(md_parts)
-    markdown = "\n".join(line for line in markdown.split("\n") if line.strip() or not line.strip())
     markdown = re.sub(r"\n{3,}", "\n\n", markdown).strip()
 
     return {
@@ -107,13 +106,7 @@ async def fetch_and_parse_rvtdocs_page(url: str) -> dict:
 
 
 def _extract_inner_html(tag: Tag) -> str:
-    parts: list[str] = []
-    for child in tag.children:
-        if isinstance(child, Tag):
-            parts.append(str(child))
-        else:
-            parts.append(str(child))
-    return "".join(parts)
+    return "".join(str(child) for child in tag.children)
 
 
 def _html_to_markdown(html: str) -> str:
@@ -128,7 +121,6 @@ def _html_to_markdown(html: str) -> str:
     result = re.sub(r"</ol>", "", result)
     result = re.sub(r"<li>(.*?)</li>", r"- \1", result)
     result = re.sub(r"<[^>]+>", "", result)
-    result = re.sub(r"\s+", " ", result)
     result = re.sub(r"\n ", "\n", result)
     return result.strip()
 

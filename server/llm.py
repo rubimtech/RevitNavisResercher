@@ -18,7 +18,7 @@ def llm_provider() -> str:
 # ─── RouterAI ───────────────────────────────────────────────────────────────
 
 async def _routerai_embedding(text: str) -> list[float]:
-    client = get_http()
+    client = await get_http()
     url = f"{get_cfg('llm', 'base_url').rstrip('/')}/embeddings"
     model = get_cfg("llm", "embedding_model", default="baai/bge-m3")
     api_key = os.environ.get("ROUTERAI_API_KEY", "")
@@ -38,7 +38,7 @@ async def _routerai_embedding(text: str) -> list[float]:
 async def _routerai_chat(
     messages: list[dict], system: str = "", temperature: Optional[float] = None
 ) -> str:
-    client = get_http()
+    client = await get_http()
     url = f"{get_cfg('llm', 'base_url').rstrip('/')}/chat/completions"
     model = get_cfg("llm", "chat_model", default="deepseek/deepseek-v4-flash")
     if temperature is None:
@@ -66,7 +66,7 @@ async def _routerai_chat(
 # ─── Ollama ─────────────────────────────────────────────────────────────────
 
 async def _ollama_embedding(text: str) -> list[float]:
-    client = get_http()
+    client = await get_http()
     base = get_cfg("ollama", "base_url", default="http://localhost:11434")
     model = get_cfg("ollama", "embedding_model", default="nomic-embed-text")
     resp = await client.post(
@@ -80,7 +80,7 @@ async def _ollama_embedding(text: str) -> list[float]:
 async def _ollama_chat(
     messages: list[dict], system: str = "", temperature: Optional[float] = None
 ) -> str:
-    client = get_http()
+    client = await get_http()
     base = get_cfg("ollama", "base_url", default="http://localhost:11434")
     model = get_cfg("ollama", "chat_model", default="qwen2.5-coder:7b")
     temp = temperature if temperature is not None else get_cfg("llm", "temperature", default=0.3)

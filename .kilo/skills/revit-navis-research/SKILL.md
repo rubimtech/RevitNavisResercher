@@ -14,9 +14,10 @@ description: >-
 This MCP server provides tools for researching **Revit API**, **Revit SDK Samples**, **Navisworks API**, and **Revit API What's New changelogs** (2022–2026). It combines:
 
 - **Qdrant vector search** — semantic search over pre-ingested API docs, SDK code, and changelogs
-- **rvtdocs.com** — live search and page retrieval (versions 2021–2027)
-- **revitapidocs.com** — alternative autocomplete search
+- **revit_api.db (SQLite)** — local cached API documentation with version filtering, cross-version diffs, and full markdown content (replaces direct rvtdocs.com/revitapidocs.com calls)
 - **LLM analysis** (deepseek-v4-flash or local Ollama) — synthesizes results
+
+> **Note:** rvtdocs.com and revitapidocs.com are no longer called directly. All API search and page content is served from the local `revit_api.db` (tables: `api_entries`, `api_content`, `api_entry_versions`, `api_diffs`).
 
 ## Collections
 
@@ -54,19 +55,23 @@ qdrant_search(
 )
 ```
 
-### `rvtdocs_search` — Search rvtdocs.com by name
+### `rvtdocs_search` — Search API entries in local DB (previously rvtdocs.com)
 
 ```python
 rvtdocs_search(query="Wall.Create", version="2024", limit=10)
 ```
 
-### `rvtdocs_get_page` — Full API page with syntax & remarks
+Powered by local `revit_api.db` (api_entries + api_entry_versions). Returns title, type, namespace, description.
+
+### `rvtdocs_get_page` — Full API page content from local DB cache
 
 ```python
-rvtdocs_get_page(url="/2024/<guid>")
+rvtdocs_get_page(url="<href>")  # href from rvtdocs_search results
 ```
 
-### `rvtdocs_cross_version_search` — Check API lifecycle
+Returns cached markdown content from `api_content` table (23K+ cached pages).
+
+### `rvtdocs_cross_version_search` — Check API lifecycle via local DB
 
 ```python
 rvtdocs_cross_version_search(
@@ -75,7 +80,49 @@ rvtdocs_cross_version_search(
 )
 ```
 
-Detects when an API was introduced, changed, or removed.
+Powered by `api_entry_versions` table — detects which versions have the API. No rvtdocs.com calls.
+
+### `sql_search_api` — Search API entries in SQLite
+
+```python
+sql_search_api(query="Curve", entry_type="class", limit=10)
+```
+
+### `sql_get_api` — Full API entry details + versions + diffs
+
+```python
+sql_get_api(href="d4648875-d41a-783b-d5f4-638df39ee413.htm")
+```
+
+### `sql_get_api_content` — Get cached markdown from api_content
+
+```python
+sql_get_api_content(href="f35ba9fc-0b6b-4284-60eb-91788761127c.htm")
+```
+
+### `sql_search_api_content` — Search + return content in one call
+
+```python
+sql_search_api_content(query="ApplicationInitialized", version="2024", limit=3)
+```
+
+### `sql_get_page_url` — Get API page content from local DB (replaces revitapidocs.com)
+
+```python
+sql_get_page_url(href="f35ba9fc-0b6b-4284-60eb-91788761127c.htm", version="2026")
+```
+
+### `sql_search_diffs` — Find APIs added/removed between versions
+
+```python
+sql_search_diffs(version_from="2026", version_to="2025", diff_type="added")
+```
+
+### `sql_get_api_hierarchy` — Hierarchy path (namespace → class → member)
+
+```python
+sql_get_api_hierarchy(href="d4648875-d41a-783b-d5f4-638df39ee413.htm", version="2026")
+```
 
 ### `analyze` — LLM analysis of search results
 

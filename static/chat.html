@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RevitNavis Chat</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; width: 100%; flex: 1; display: flex; flex-direction: column; }
+  header { text-align: center; padding: 16px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  header h1 { font-size: 1.3rem; font-weight: 700; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--text-dim); font-size: 0.85rem; margin-top: 4px; }
+  header .query-display { color: var(--accent); font-size: 0.9rem; margin-top: 6px; font-style: italic; }
+  .chat-container { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; min-height: 300px; max-height: calc(100vh - 260px); }
+  .chat-msg { padding: 10px 14px; border-radius: var(--radius); max-width: 92%; line-height: 1.6; font-size: 0.92rem; }
+  .chat-msg.user { background: var(--accent); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chat-msg.assistant { background: var(--surface); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .chat-msg.system { display: none; }
+  .chat-msg .msg-content p { margin: 6px 0; }
+  .chat-msg .msg-content p:first-child { margin-top: 0; }
+  .chat-msg .msg-content p:last-child { margin-bottom: 0; }
+  .chat-msg .msg-content code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-size: 0.88em; }
+  .chat-msg .msg-content pre {
+    background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 4px;
+    padding: 10px; margin: 6px 0; overflow-x: auto; font-size: 0.84rem;
+    position: relative;
+  }
+  .chat-msg.user .msg-content code { background: rgba(255,255,255,0.2); }
+  .chat-msg.user .msg-content pre { background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.2); }
+  .chat-msg .msg-content ul, .chat-msg .msg-content ol { padding-left: 20px; margin: 6px 0; }
+  .chat-msg .msg-content li { margin: 3px 0; }
+  .chat-msg .msg-content strong { color: #fff; }
+  .chat-msg .msg-content h1, .chat-msg .msg-content h2, .chat-msg .msg-content h3 {
+    margin: 10px 0 6px; color: var(--accent);
+  }
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 12px 0;
+    border-top: 1px solid var(--border); margin-top: 8px;
+  }
+  .chat-input-row textarea {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 10px 14px; font-size: 0.92rem; font-family: inherit;
+    resize: none; min-height: 44px; max-height: 120px;
+    transition: border-color 0.2s;
+  }
+  .chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-msg-search { font-size: 0.78rem; color: var(--orange); padding: 4px 0; text-align: center; }
+  .stream-cursor::after { content: '\u258a'; animation: blink 0.8s step-end infinite; color: var(--accent); }
+  @keyframes blink { 50% { opacity: 0; } }
+  .status-line { font-size: 0.82rem; color: var(--text-dim); min-height: 22px; display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+  .spinner-sm { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: var(--text-dim); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px;
+    border: none; border-radius: var(--radius); font-size: 1rem; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; transition: all 0.2s;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px;
+    border: none; border-radius: var(--radius); font-size: 0.85rem; cursor: pointer;
+    background: var(--border); color: var(--text); transition: all 0.2s;
+  }
+  .btn-secondary:hover { background: #3d444d; }
+  .btn-xs { padding: 4px 10px; font-size: 0.75rem; border-radius: 4px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .warning-banner {
+    background: rgba(210,153,34,0.15); border: 1px solid var(--orange); border-radius: var(--radius);
+    padding: 10px 14px; font-size: 0.85rem; color: var(--orange); margin-bottom: 8px;
+  }
+  .copy-btn {
+    position: absolute; top: 6px; right: 6px;
+    background: var(--border); color: var(--text-dim); border: none;
+    border-radius: 4px; padding: 3px 7px; font-size: 0.7rem; cursor: pointer; opacity: 0; transition: opacity 0.2s;
+  }
+  .chat-msg .msg-content pre:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { background: #3d444d; color: var(--text); }
+  .copy-btn.copied { background: var(--green); color: #fff; }
+  @media (max-width: 600px) {
+    .container { padding: 12px; }
+    .chat-messages { max-height: calc(100vh - 240px); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Revit<span>Navis</span> Chat</h1>
+    <p>Диалог с LLM по результатам поиска</p>
+    <div class="query-display" id="queryDisplay"></div>
+  </header>
+
+  <div class="chat-container">
+    <div class="toolbar">
+      <div class="status-line" id="statusLine"></div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-secondary btn-xs" id="newSearchBtn">🔍 Новый поиск</button>
+        <button class="btn-secondary btn-xs" id="clearChatBtn">🗑 Очистить</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput" placeholder="Задайте уточняющий вопрос..." rows="1"></textarea>
+      <button class="btn-primary" id="chatSendBtn">Отправить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CHAT_PREFIX = 'revitnavis_chat_conv_';
+
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSendBtn = document.getElementById('chatSendBtn');
+const statusLine = document.getElementById('statusLine');
+const queryDisplay = document.getElementById('queryDisplay');
+const clearChatBtn = document.getElementById('clearChatBtn');
+const newSearchBtn = document.getElementById('newSearchBtn');
+
+let chatData = null;
+let conversationId = null;
+let messages = [];
+let isStreaming = false;
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function chatMarkedParse(text) {
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/### (.+)/g, '<h3>$1</h3>')
+    .replace(/## (.+)/g, '<h2>$1</h2>')
+    .replace(/# (.+)/g, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  return `<p>${html}</p>`;
+}
+
+function addCopyButtons(container) {
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.querySelector('.copy-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = '📋';
+    btn.addEventListener('click', async () => {
+      const code = pre.textContent;
+      try {
+        await navigator.clipboard.writeText(code);
+        btn.textContent = '✅';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋'; btn.classList.remove('copied'); }, 2000);
+      } catch { btn.textContent = '❌'; }
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+}
+
+function renderMessages() {
+  if (!messages.length) {
+    chatMessages.innerHTML = '<div style="color:var(--text-dim);font-size:0.9rem;text-align:center;padding:20px">Загрузка...</div>';
+    return;
+  }
+  chatMessages.innerHTML = messages.map((m, i) => {
+    if (m.role === 'system') return '';
+    const content = chatMarkedParse(m.content);
+    const searchNotice = m._searchQuery
+      ? `<div class="chat-msg-search">🔍 Выполнен дополнительный поиск: ${escapeHtml(m._searchQuery)}</div>`
+      : '';
+    const streamingClass = (i === messages.length - 1 && m.role === 'assistant' && isStreaming) ? ' stream-cursor' : '';
+    return `<div class="chat-msg ${m.role}"><div class="msg-content">${content}${streamingClass ? '<span class="stream-cursor"></span>' : ''}</div>${searchNotice}</div>`;
+  }).join('');
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  addCopyButtons(chatMessages);
+}
+
+function setStatus(msg, type) {
+  if (!msg) { statusLine.innerHTML = ''; return; }
+  const icon = type === 'error' ? '❌' : type === 'thinking' ? '<span class="spinner-sm"></span>' : type === 'search' ? '🔍' : '💬';
+  statusLine.innerHTML = `${icon} ${escapeHtml(msg)}`;
+}
+
+function loadConversation() {
+  if (!conversationId) return;
+  try {
+    const saved = localStorage.getItem(CHAT_PREFIX + conversationId);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) messages = parsed;
+    }
+  } catch {}
+}
+
+function saveConversation() {
+  if (!conversationId) return;
+  try {
+    localStorage.setItem(CHAT_PREFIX + conversationId, JSON.stringify(messages));
+  } catch {
+    // localStorage full
+  }
+}
+
+function getChatKey() {
+  return CHAT_PREFIX + conversationId;
+}
+
+function initChat() {
+  const p = new URLSearchParams(window.location.search);
+  const id = p.get('id');
+  if (!id) {
+    queryDisplay.textContent = 'Ошибка: не указан ID диалога';
+    setStatus('Ошибка: не указан ID диалога', 'error');
+    return;
+  }
+
+  conversationId = id;
+  const stored = localStorage.getItem('revitnavis_chat_data_' + id);
+  if (!stored) {
+    queryDisplay.textContent = 'Данные диалога не найдены. Вернитесь на страницу поиска.';
+    setStatus('Данные не найдены', 'error');
+    return;
+  }
+
+  try {
+    chatData = JSON.parse(stored);
+  } catch {
+    queryDisplay.textContent = 'Ошибка загрузки данных';
+    setStatus('Ошибка загрузки', 'error');
+    return;
+  }
+
+  queryDisplay.textContent = '💬 ' + chatData.query;
+
+  loadConversation();
+
+  if (messages.length === 0) {
+    messages.push({
+      role: 'assistant',
+      content: '**Результаты поиска по запросу:** ' + chatData.query + '\n\n' + (chatData.analysis || 'Ответ не получен.')
+    });
+    saveConversation();
+  }
+
+  renderMessages();
+  setStatus('Готов к вопросам. LLM может выполнять дополнительные поиски через [SEARCH: ...]');
+  chatInput.disabled = false;
+  chatSendBtn.disabled = false;
+  chatInput.focus();
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text || chatSendBtn.disabled || isStreaming || !chatData) return;
+
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  messages.push({ role: 'user', content: text });
+  saveConversation();
+  renderMessages();
+
+  isStreaming = true;
+  chatSendBtn.disabled = true;
+  chatInput.disabled = true;
+
+  messages.push({ role: 'assistant', content: '' });
+  const msgIdx = messages.length - 1;
+  renderMessages();
+
+  let searchContext = chatData.searchContext || JSON.stringify({
+    query: chatData.query,
+    collections: chatData.collections,
+    analysis: chatData.analysis
+  });
+
+  try {
+    const payload = {
+      messages: messages
+        .filter(m => m.content && !m._searchQuery && m.role !== 'system')
+        .slice(-20)
+        .map(m => ({ role: m.role, content: m.content })),
+      collections: chatData.collections || ['revit_api_knowledge'],
+      search_context: searchContext
+    };
+
+    setStatus('Думаю...', 'thinking');
+
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      const detail = Array.isArray(err.detail) ? err.detail.map(d => d.msg || JSON.stringify(d)).join('; ') : (err.detail || `HTTP ${res.status}`);
+      throw new Error(detail);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+    let replyText = '';
+    let searchQuery = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const data = JSON.parse(dataStr);
+            if (currentEvent === 'token') {
+              replyText += data.token || '';
+              messages[msgIdx] = { role: 'assistant', content: replyText };
+              renderMessages();
+            } else if (currentEvent === 'search_request') {
+              searchQuery = data.query;
+              setStatus('Выполняю дополнительный поиск: ' + searchQuery, 'search');
+            } else if (currentEvent === 'status') {
+              if (data.msg) setStatus(data.msg, 'thinking');
+            } else if (currentEvent === 'done') {
+              if (searchQuery) {
+                messages[msgIdx]._searchQuery = searchQuery;
+              }
+              saveConversation();
+              renderMessages();
+            } else if (currentEvent === 'error') {
+              throw new Error(data.error);
+            }
+          } catch {}
+        }
+      }
+    }
+
+    saveConversation();
+    setStatus('');
+  } catch (err) {
+    messages[msgIdx] = { role: 'assistant', content: '❌ Ошибка: ' + err.message };
+    saveConversation();
+    renderMessages();
+    setStatus('Ошибка: ' + err.message, 'error');
+  }
+
+  isStreaming = false;
+  chatSendBtn.disabled = false;
+  chatInput.disabled = false;
+  chatInput.focus();
+}
+
+clearChatBtn.addEventListener('click', () => {
+  if (conversationId) {
+    localStorage.removeItem(CHAT_PREFIX + conversationId);
+  }
+  messages = [];
+  if (chatData) {
+    messages.push({
+      role: 'assistant',
+      content: '**Результаты поиска по запросу:** ' + chatData.query + '\n\n' + (chatData.analysis || 'Ответ не получен.')
+    });
+    saveConversation();
+  }
+  renderMessages();
+  chatInput.focus();
+});
+
+newSearchBtn.addEventListener('click', () => {
+  window.open('/', '_blank');
+});
+
+chatSendBtn.addEventListener('click', sendChatMessage);
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+  setTimeout(() => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  }, 0);
+});
+
+initChat();
+</script>
+</body>
+</html>

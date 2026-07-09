@@ -210,16 +210,6 @@
           <button type="button" class="toggle-all" id="selectAllBtn">Все</button>
           <button type="button" class="toggle-all" id="deselectAllBtn">Сброс</button>
         </div>
-        <label for="version">Revit</label>
-        <select id="version">
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
-          <option value="2027">2027</option>
-          <option value="2023">2023</option>
-          <option value="2022">2022</option>
-          <option value="2021">2021</option>
-        </select>
         <button type="submit" class="btn-primary" id="searchBtn">
           <span id="btnIcon">🔍</span>
           <span id="btnText">Искать</span>
@@ -280,7 +270,6 @@ const MAX_HISTORY = 20;
 
 const form = document.getElementById('searchForm');
 const query = document.getElementById('query');
-const version = document.getElementById('version');
 const searchBtn = document.getElementById('searchBtn');
 const clearBtn = document.getElementById('clearBtn');
 const btnIcon = document.getElementById('btnIcon');
@@ -325,8 +314,6 @@ function restoreFromUrl() {
       cb.checked = selected.includes(cb.value);
     });
   }
-  const v = p.get('v');
-  if (v && [...version.options].some(o => o.value === v)) version.value = v;
 }
 restoreFromUrl();
 
@@ -336,8 +323,6 @@ function setUrlParams() {
   if (q) p.set('q', q);
   const cols = getSelectedCollections();
   if (cols.length && cols.length < 3) p.set('cols', cols.join(','));
-  const v = version.value;
-  if (v !== '2024') p.set('v', v);
   const url = window.location.pathname + (p.toString() ? '?' + p : '');
   window.history.replaceState({}, '', url);
 }
@@ -361,9 +346,9 @@ function saveHistory(items) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
 }
 
-function addHistory(q, cols, v) {
+function addHistory(q, cols) {
   const items = loadHistory();
-  items.unshift({ q, cols, v, t: Date.now(), label: getCollectionLabel(cols[0]) + (cols.length > 1 ? ` +${cols.length - 1}` : '') });
+  items.unshift({ q, cols, t: Date.now(), label: getCollectionLabel(cols[0]) + (cols.length > 1 ? ` +${cols.length - 1}` : '') });
   if (items.length > MAX_HISTORY) items.length = MAX_HISTORY;
   saveHistory(items);
   renderHistory();
@@ -394,7 +379,6 @@ function renderHistory() {
       document.querySelectorAll('#collectionGroup input[type="checkbox"]').forEach(cb => {
         cb.checked = item.cols.includes(cb.value);
       });
-      if (item.v && [...version.options].some(o => o.value === item.v)) version.value = item.v;
       query.focus();
     });
   });
@@ -483,12 +467,12 @@ function renderQdrant(results) {
 function renderRvtdocs(results) {
   if (!results || results.length === 0) { rvtdocsSection.classList.add('hidden'); return; }
   rvtdocsSection.classList.remove('hidden');
-  rvtdocsTitle.textContent = `rvtdocs.com (${results.length})`;
+  rvtdocsTitle.textContent = `Локальная БД (${results.length})`;
   rvtdocsResults.innerHTML = results.map(r =>
     `<div class="rvtdocs-item">
       <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>
       <span style="color:var(--text-dim);font-size:0.8rem"> (${r.type})</span>
-      <span class="rvtdocs-badge">v${r.version}</span>
+      <span class="rvtdocs-badge">v${r.versions}</span>
       ${r.description ? `<div class="rvtdocs-desc">${escapeHtml(r.description.slice(0, 200))}</div>` : ''}
     </div>`
   ).join('');
@@ -645,9 +629,32 @@ function buildSearchContext(payload, analysis) {
   return JSON.stringify({
     query: payload.query,
     collections: payload.collections,
-    revit_version: payload.revit_version,
     analysis: analysis
   });
+}
+
+function navigateToChat() {
+  const id = 'chat_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const chatData = {
+    query: lastSearchPayload.query,
+    collections: lastSearchPayload.collections,
+    analysis: document.getElementById('analysisContent').innerText || lastSearchContext ? JSON.parse(lastSearchContext).analysis : '',
+    searchContext: lastSearchContext,
+    timestamp: Date.now()
+  };
+  try {
+    localStorage.setItem('revitnavis_chat_data_' + id, JSON.stringify(chatData));
+  } catch (e) {
+    // localStorage full — clean old entries
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('revitnavis_chat_data_')) {
+        localStorage.removeItem(key);
+      }
+    }
+    localStorage.setItem('revitnavis_chat_data_' + id, JSON.stringify(chatData));
+  }
+  window.open('/chat?id=' + id, '_blank');
 }
 
 // ─── Form submit ─────────────────────────────────────────────────────────
@@ -668,9 +675,9 @@ form.addEventListener('submit', async (e) => {
   rvtdocsSection.classList.add('hidden');
   chatSection.classList.add('hidden');
 
-  const payload = { query: q, collections: selected, limit: 8, revit_version: version.value };
+  const payload = { query: q, collections: selected, limit: 8 };
   setUrlParams();
-  addHistory(q, selected, version.value);
+  addHistory(q, selected);
 
   await doStreamSearch(payload);
 });
@@ -688,13 +695,7 @@ clearBtn.addEventListener('click', () => {
   query.focus();
 });
 
-continueChatBtn.addEventListener('click', () => {
-  chatSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setTimeout(() => {
-    chatInput.focus();
-    chatInput.selectionStart = chatInput.selectionEnd = chatInput.value.length;
-  }, 400);
-});
+continueChatBtn.addEventListener('click', navigateToChat);
 
 query.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -709,8 +710,7 @@ function getChatKey() {
   if (!lastSearchPayload) return null;
   return CHAT_KEY + JSON.stringify({
     q: lastSearchPayload.query,
-    cols: lastSearchPayload.collections,
-    v: lastSearchPayload.revit_version
+    cols: lastSearchPayload.collections
   });
 }
 
@@ -775,7 +775,6 @@ async function sendChatMessage() {
     const payload = {
       messages: messages.filter(m => m.content && !m._searchQuery && m.role !== 'system').slice(-20).map(m => ({ role: m.role, content: m.content })),
       collections: lastSearchPayload.collections,
-      revit_version: lastSearchPayload.revit_version,
       search_context: lastSearchContext
     };
 
