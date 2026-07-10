@@ -18,11 +18,16 @@ from server.state import shutdown
 
 # Import tool modules so @mcp.tool decorators register on the shared instance.
 # This is done here (not in __init__.py) so config is available at import time.
+if os.environ.get("RVTDOC_API_URL"):
+    # Remote mode: use HTTP API instead of local SQLite
+    import server.tools_rvtdocs_api  # noqa: F401
+else:
+    # Local mode: use direct SQLite access
+    import server.tools_rvtdocs  # noqa: F401
+    import server.tools_revitapidocs  # noqa: F401
+    import server.tools_sqlite  # noqa: F401
 import server.tools_qdrant  # noqa: F401
-import server.tools_rvtdocs  # noqa: F401
-import server.tools_revitapidocs  # noqa: F401
 import server.tools_analyze  # noqa: F401
-import server.tools_sqlite  # noqa: F401
 
 _logger: logging.Logger = None  # type: ignore[assignment]
 

@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revit API Browser</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  header label { color: var(--text-dim); font-size: 0.85rem; }
+  header select, header input {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 6px 10px; font-size: 0.85rem;
+  }
+  header select:focus, header input:focus { outline: none; border-color: var(--accent); }
+  header input { width: 200px; }
+
+  .main {
+    display: flex; flex: 1; overflow: hidden;
+  }
+
+  .tree-panel {
+    width: 380px; min-width: 280px; overflow-y: auto;
+    border-right: 1px solid var(--border); padding: 8px 0;
+    flex-shrink: 0;
+  }
+  .tree-panel .resize-handle {
+    position: absolute; right: -3px; top: 0; bottom: 0; width: 6px;
+    cursor: col-resize; z-index: 10;
+  }
+
+  .content-panel {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+  }
+
+  .tree-node { cursor: pointer; user-select: none; }
+  .tree-node .row {
+    display: flex; align-items: center; gap: 4px; padding: 3px 12px 3px 0;
+    border-left: 2px solid transparent; transition: background 0.15s;
+    font-size: 0.85rem;
+  }
+  .tree-node .row:hover { background: var(--surface); }
+  .tree-node .row.selected { background: rgba(88,166,255,0.12); border-left-color: var(--accent); }
+  .tree-node .row .icon { width: 18px; text-align: center; flex-shrink: 0; color: var(--text-dim); font-size: 0.7rem; }
+  .tree-node .row .icon.spinner::after { content: ''; display: inline-block; width: 12px; height: 12px; border: 2px solid var(--text-dim); border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tree-node .row .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-node .row .badge { font-size: 0.7rem; color: var(--text-dim); flex-shrink: 0; }
+  .tree-node .row .badge.has-content { color: var(--green); }
+  .tree-node .children { display: none; }
+  .tree-node.expanded > .children { display: block; }
+  .tree-node .depth-indent { display: inline-block; }
+
+  .tag-namespace { color: #ffa657; }
+  .tag-class { color: #58a6ff; }
+  .tag-interface { color: #79c0ff; }
+  .tag-structure { color: #56d4dd; }
+  .tag-enumeration { color: #d2a8ff; }
+  .tag-method { color: #d2a8ff; }
+  .tag-property { color: #79c0ff; }
+  .tag-event { color: #ffa657; }
+  .tag-constructor { color: #7ee787; }
+  .tag-field { color: #f69d50; }
+  .tag-delegate { color: #f778ba; }
+  .tag-operator { color: #e3b341; }
+
+  .content-panel .breadcrumb { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px; word-break: break-all; }
+  .content-panel .title { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+  .content-panel .meta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; font-size: 0.85rem; }
+  .content-panel .meta .pill {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 2px 10px; color: var(--text-dim);
+  }
+  .content-panel .description { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5; }
+
+  .content-panel .no-content { color: var(--text-dim); font-style: italic; padding: 40px 0; text-align: center; }
+
+  /* Markdown rendering */
+  .markdown { line-height: 1.6; }
+  .markdown h1 { font-size: 1.4rem; margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .markdown h2 { font-size: 1.2rem; margin: 18px 0 8px; }
+  .markdown h3 { font-size: 1.05rem; margin: 14px 0 6px; }
+  .markdown h4 { font-size: 0.95rem; margin: 12px 0 4px; }
+  .markdown p { margin: 8px 0; }
+  .markdown code {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 5px; font-size: 0.85em; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+  .markdown pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; overflow-x: auto; margin: 12px 0;
+  }
+  .markdown pre code { background: none; border: none; padding: 0; font-size: 0.82rem; }
+  .markdown table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  .markdown th, .markdown td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 0.85rem; }
+  .markdown th { background: var(--surface); }
+  .markdown a { color: var(--accent); text-decoration: none; }
+  .markdown a:hover { text-decoration: underline; }
+  .markdown ul, .markdown ol { padding-left: 20px; margin: 8px 0; }
+  .markdown li { margin: 3px 0; }
+  .markdown blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-dim); margin: 12px 0; }
+  .markdown hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; flex-shrink: 0; }
+  .tab {
+    padding: 8px 18px; cursor: pointer; font-size: 0.85rem; color: var(--text-dim);
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .loading { text-align: center; padding: 60px 0; color: var(--text-dim); }
+  .loading::after { content: ''; display: block; margin: 16px auto; width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Revit</span> API Browser</h1>
+  <div class="spacer"></div>
+  <label for="version-select">Version:</label>
+  <select id="version-select"></select>
+  <input type="text" id="search-input" placeholder="Search classes, methods..." />
+</header>
+<div class="tabs">
+  <div class="tab active" data-tab="tree">API Tree</div>
+  <div class="tab" data-tab="code">SDK Samples</div>
+</div>
+<div class="main">
+  <div class="tree-panel" id="tree-panel"></div>
+  <div class="content-panel" id="content-panel">
+    <div class="loading">Select an item from the tree</div>
+  </div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+let currentVersion = '2024';
+let treeCache = {};
+let selectedHref = null;
+let currentTab = 'tree';
+let searchDebounce = null;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+const versionSelect = document.getElementById('version-select');
+const searchInput = document.getElementById('search-input');
+const treePanel = document.getElementById('tree-panel');
+const contentPanel = document.getElementById('content-panel');
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  await loadVersions();
+  versionSelect.addEventListener('change', onVersionChange);
+  searchInput.addEventListener('input', onSearchInput);
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', onTabClick));
+  if (currentTab === 'tree') loadNamespaces();
+}
+
+async function loadVersions() {
+  const res = await fetch('/api/tree/versions');
+  const data = await res.json();
+  versionSelect.innerHTML = data.versions.map(v =>
+    `<option value="${v}" ${v === currentVersion ? 'selected' : ''}>Revit ${v}</option>`
+  ).join('');
+}
+
+function onVersionChange() {
+  currentVersion = versionSelect.value;
+  treeCache = {};
+  selectedHref = null;
+  if (currentTab === 'tree') loadNamespaces();
+  if (currentTab === 'code') loadCodeFiles();
+}
+
+function onTabClick(e) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  e.target.classList.add('active');
+  currentTab = e.target.dataset.tab;
+  treePanel.innerHTML = '';
+  contentPanel.innerHTML = '<div class="loading">Loading...</div>';
+  if (currentTab === 'tree') loadNamespaces();
+  if (currentTab === 'code') loadCodeFiles();
+}
+
+// ─── Search ──────────────────────────────────────────────────────────────────
+function onSearchInput() {
+  clearTimeout(searchDebounce);
+  const q = searchInput.value.trim();
+  if (q.length < 2) {
+    if (q.length === 0 && currentTab === 'tree') loadNamespaces();
+    return;
+  }
+  searchDebounce = setTimeout(() => doSearch(q), 300);
+}
+
+async function doSearch(q) {
+  treePanel.innerHTML = '<div class="loading">Searching...</div>';
+  const res = await fetch(`/api/tree/search?version=${currentVersion}&q=${encodeURIComponent(q)}&limit=50`);
+  const data = await res.json();
+  if (!data.items || data.items.length === 0) {
+    treePanel.innerHTML = '<div style="padding:20px;color:var(--text-dim);text-align:center;">Nothing found</div>';
+    return;
+  }
+  treePanel.innerHTML = '';
+  for (const item of data.items) {
+    const node = document.createElement('div');
+    node.className = 'tree-node';
+    const icon = item.has_content ? '<span class="badge has-content">&#9679;</span>' : '<span class="badge">&#9675;</span>';
+    node.innerHTML = `<div class="row" data-href="${item.href}">
+      <span class="icon"></span>
+      <span class="label tag-${item.entry_type}">${escapeHtml(item.title)}</span>
+      <span class="badge">${item.entry_type}</span>
+      ${icon}
+    </div>`;
+    node.querySelector('.row').addEventListener('click', () => {
+      loadContent(item.href);
+      highlightRow(node.querySelector('.row'));
+    });
+    treePanel.appendChild(node);
+  }
+}
+
+// ─── Tree: Namespaces ────────────────────────────────────────────────────────
+async function loadNamespaces() {
+  treePanel.innerHTML = '<div class="loading">Loading namespaces...</div>';
+  treeCache = {};
+  const res = await fetch(`/api/tree/namespaces?version=${currentVersion}`);
+  const data = await res.json();
+  treePanel.innerHTML = '';
+  data.items.forEach(ns => addTreeNode(treePanel, ns, 0, true));
+}
+
+function addTreeNode(parent, item, depth, expandable) {
+  const node = document.createElement('div');
+  node.className = 'tree-node';
+  const hasChildren = expandable || item.child_count > 0;
+  const icon = hasChildren ? '<span class="icon">&#9660;</span>' : '<span class="icon"></span>';
+  const contentDot = item.has_content ? '<span class="badge has-content">&#9679;</span>' : '';
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.dataset.href = item.href;
+  row.innerHTML = `<span class="depth-indent" style="width:${depth*16}px"></span>${icon}
+    <span class="label tag-${item.entry_type}">${escapeHtml(item.title)}</span>
+    <span class="badge">${item.entry_type}</span>${contentDot}`;
+
+  const children = document.createElement('div');
+  children.className = 'children';
+
+  row.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (hasChildren) {
+      node.classList.toggle('expanded');
+      row.querySelector('.icon').textContent = node.classList.contains('expanded') ? '&#9660;' : '&#9654;';
+      if (!children.hasChildNodes() && hasChildren) {
+        await loadChildren(item.href, children, depth + 1);
+      }
+    }
+    loadContent(item.href);
+    highlightRow(row);
+  });
+
+  node.appendChild(row);
+  node.appendChild(children);
+  parent.appendChild(node);
+}
+
+async function loadChildren(href, container, depth) {
+  container.innerHTML = '<div style="padding:4px 12px;color:var(--text-dim);font-size:0.8rem;">Loading...</div>';
+  const res = await fetch(`/api/tree/children?version=${currentVersion}&parent=${encodeURIComponent(href)}`);
+  const data = await res.json();
+  container.innerHTML = '';
+  data.items.forEach(item => addTreeNode(container, item, depth, item.child_count > 0));
+}
+
+// ─── Content ─────────────────────────────────────────────────────────────────
+async function loadContent(href) {
+  selectedHref = href;
+  contentPanel.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    const res = await fetch(`/api/tree/content?href=${encodeURIComponent(href)}`);
+    if (!res.ok) { contentPanel.innerHTML = '<div class="no-content">Entry not found</div>'; return; }
+    const item = await res.json();
+    renderContent(item);
+  } catch (e) {
+    contentPanel.innerHTML = '<div class="no-content">Error loading content</div>';
+  }
+}
+
+function renderContent(item) {
+  let md = item.content_md || '';
+  // fix markdown headings - add space after ##
+  md = md.replace(/^(#+)(\S)/gm, '$1 $2');
+
+  contentPanel.innerHTML = `
+    <div class="breadcrumb">${escapeHtml(item.path || item.namespace || '')}</div>
+    <div class="title">${escapeHtml(item.title)}</div>
+    <div class="meta">
+      <span class="pill">${item.entry_type}</span>
+      ${item.member_of ? `<span class="pill">${escapeHtml(item.member_of)}</span>` : ''}
+      ${item.namespace ? `<span class="pill">${escapeHtml(item.namespace)}</span>` : ''}
+    </div>
+    ${item.description ? `<div class="description">${escapeHtml(item.description)}</div>` : ''}
+    <div class="markdown">${md ? renderMarkdown(md) : '<div class="no-content">No documentation content available</div>'}</div>
+  `;
+}
+
+function renderMarkdown(md) {
+  // simple markdown to HTML rendering
+  let html = md;
+
+  // code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code class="language-${lang}">${escapeHtml(code.trim())}</code></pre>`;
+  });
+
+  // inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // bold & italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // tables
+  html = html.replace(/^\|(.+)\|$/gm, (line) => {
+    if (line.match(/^\|[\s:-]+\|$/)) return '<hr class="table-sep">';
+    const cells = line.split('|').filter(c => c !== undefined).slice(1, -1);
+    // Check if separator row
+    if (cells.every(c => c.trim().match(/^:?-+:?$/))) return '';
+    return '<tr>' + cells.map(c => '<td>' + c.trim() + '</td>').join('') + '</tr>';
+  });
+  // Wrap tables
+  html = html.replace(/(<tr>.*<\/tr>(\s*<tr>.*<\/tr>)*)/g, '<table>$1</table>');
+
+  // headers - must be at start of line
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // horizontal rules
+  html = html.replace(/^---$/gm, '<hr>');
+
+  // links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // paragraphs - wrap non-block lines
+  const lines = html.split('\n');
+  const result = [];
+  let inBlock = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { if (!inBlock) result.push(''); continue; }
+    if (trimmed.startsWith('<') && (trimmed.endsWith('>') || trimmed.endsWith('/>'))) {
+      // Check if it's a block-level element
+      if (trimmed.match(/^<(h[1-4]|pre|table|ul|ol|li|blockquote|hr|div|tr)/)) {
+        result.push(trimmed);
+        inBlock = trimmed.startsWith('<table') || trimmed.startsWith('<pre');
+      } else if (trimmed === '<hr>') {
+        result.push(trimmed);
+      } else {
+        result.push('<p>' + trimmed + '</p>');
+      }
+    } else if (trimmed.startsWith('</')) {
+      result.push(trimmed);
+      inBlock = false;
+    } else {
+      result.push('<p>' + trimmed + '</p>');
+    }
+  }
+  html = result.join('\n');
+
+  return html;
+}
+
+// ─── Code Files Tab ──────────────────────────────────────────────────────────
+async function loadCodeFiles() {
+  treePanel.innerHTML = '<div class="loading">Loading SDK samples...</div>';
+  const res = await fetch('/api/tree/code-files?limit=200');
+  const data = await res.json();
+  treePanel.innerHTML = '';
+  if (!data.items || data.items.length === 0) {
+    treePanel.innerHTML = '<div style="padding:20px;color:var(--text-dim);text-align:center;">No code files found</div>';
+    return;
+  }
+  for (const file of data.items) {
+    const node = document.createElement('div');
+    node.className = 'tree-node';
+    node.innerHTML = `<div class="row" data-id="${file.id}">
+      <span class="icon"></span>
+      <span class="label" style="color:var(--green)">${escapeHtml(file.file_name)}</span>
+    </div>`;
+    node.querySelector('.row').addEventListener('click', () => {
+      loadCodeFile(file.id);
+      highlightRow(node.querySelector('.row'));
+    });
+    treePanel.appendChild(node);
+  }
+}
+
+async function loadCodeFile(id) {
+  selectedHref = id;
+  contentPanel.innerHTML = '<div class="loading">Loading...</div>';
+  const res = await fetch(`/api/tree/code-file?id=${encodeURIComponent(id)}`);
+  if (!res.ok) { contentPanel.innerHTML = '<div class="no-content">Not found</div>'; return; }
+  const item = await res.json();
+  contentPanel.innerHTML = `
+    <div class="title">${escapeHtml(item.file_name)}</div>
+    <div class="breadcrumb">${escapeHtml(item.file_path)}</div>
+    ${item.summary ? `<div class="description">${escapeHtml(item.summary)}</div>` : ''}
+    <div class="markdown"><pre><code class="language-csharp">${escapeHtml(item.full_code)}</code></pre></div>
+  `;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function escapeHtml(text) {
+  if (!text) return '';
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function highlightRow(row) {
+  document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+}
+
+// ─── Start ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

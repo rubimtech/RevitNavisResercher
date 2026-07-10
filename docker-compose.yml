@@ -2,6 +2,26 @@
 # RevitNavisResearcher — Docker Compose
 # =============================================================================
 services:
+  # ── PostgreSQL (Revit API & Codebase data) ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: revitnavis-pg
+    environment:
+      POSTGRES_DB: revitnavis
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d revitnavis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
   # ── MCP Server (Revit & Navisworks API Research) ──────────────────────────
   mcp-server:
     build:
@@ -21,6 +41,13 @@ services:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=7400
       - HTTP_TIMEOUT=180
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=revitnavis
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
+      - RVTDOC_API_URL=http://d9e0f9d73f7a.vps.myjino.ru/api/rvtdoc
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -33,6 +60,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # ── Data Migration (SQLite -> PostgreSQL, run once) ────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: revitnavis-migrate
+    profiles: ["migrate"]
+    env_file:
+      - .env
+    volumes:
+      - ./revit_codebase.db:/app/revit_codebase.db
+      - ./revit_api.db:/app/revit_api.db
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=revitnavis
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+    command: >
+      sh -c "pip install psycopg2-binary 2>/dev/null && python pg_migrate.py
+             --pg-host postgres --pg-port 5432 --pg-db revitnavis
+             --pg-user postgres --pg-password postgres"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # ── Web App (REST API + Frontend) ─────────────────────────────────────────
   web-app:
@@ -54,4 +108,17 @@ services:
       - LLM_MODEL=deepseek/deepseek-v4-flash
       - HTTP_TIMEOUT=180
       - WEB_PORT=7401
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=revitnavis
+      - PG_USER=postgres
+      - PG_PASSWORD=postgres
+      - QDRANT_URL=http://d9e0f9d73f7a.vps.myjino.ru:6333
+      - RVTDOC_API_URL=http://d9e0f9d73f7a.vps.myjino.ru/api/rvtdoc
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pg_data:

@@ -44,3 +44,6 @@ qdrant_data/
 cookies.txt
 
 kilo.json
+
+# === Tunnel ===
+tunnel.pid

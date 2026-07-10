@@ -1,0 +1,6 @@
+{
+  "name": "Revit API Researcher",
+  "description": "A RAG-powered chatbot and search assistant for the Revit API, Navisworks API, SDK Samples, and changelogs, using Qdrant vector search and RouterAI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

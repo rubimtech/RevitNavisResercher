@@ -1,10 +1,11 @@
+import asyncio
 import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +14,20 @@ from .clients import close_clients
 from .config import config, get_cfg, llm_provider, load_config
 from .llm import llm_chat_full, llm_chat_stream
 from .models import ChatRequest, ResearchWithKeyRequest, SearchRequest
+from .pg_client import (
+    close_pool,
+    count_version_diffs,
+    get_children,
+    get_code_file,
+    get_code_files,
+    get_content,
+    get_namespaces,
+    get_versions,
+    get_version_diffs,
+    get_whatsnew,
+    init_pool,
+    search_entries,
+)
 from .search import _search_rvtdocs, build_context, search_qdrant
 
 from portable.paths import get_base_dir
@@ -47,7 +62,9 @@ async def lifespan(app: FastAPI):
         _logger.info("Models: embed=%s, llm=%s", get_cfg("llm", "embedding_model"), get_cfg("llm", "chat_model"))
         if not os.environ.get("ROUTERAI_API_KEY"):
             _logger.warning("ROUTERAI_API_KEY not set — LLM endpoints will fail")
+    await init_pool()
     yield
+    await close_pool()
     await close_clients()
 
 
@@ -78,6 +95,14 @@ async def chat_page():
         content = chat_path.read_text(encoding="utf-8")
         return HTMLResponse(content)
     return HTMLResponse("<h1>Chat page not found</h1>")
+
+
+# ─── Health & Config ──────────────────────────────────────────────────────────
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "app": "revitnavis-web"}
 
 
 @app.get("/api/config")
@@ -264,6 +289,82 @@ async def api_research_with_key_stream(req: ResearchWithKeyRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── Tree Browser (PostgreSQL) ────────────────────────────────────────────
+
+
+@app.get("/tree")
+async def tree_page():
+    tree_path = STATIC_DIR / "tree.html"
+    if tree_path.exists():
+        content = tree_path.read_text(encoding="utf-8")
+        return HTMLResponse(content)
+    return HTMLResponse("<h1>Tree browser not found</h1>")
+
+
+@app.get("/api/tree/versions")
+async def api_tree_versions():
+    return {"versions": await get_versions()}
+
+
+@app.get("/api/tree/namespaces")
+async def api_tree_namespaces(version: str = Query("2024")):
+    return {"items": await get_namespaces(version)}
+
+
+@app.get("/api/tree/children")
+async def api_tree_children(version: str = Query("2024"), parent: str = Query(...)):
+    return {"items": await get_children(version, parent)}
+
+
+@app.get("/api/tree/content")
+async def api_tree_content(href: str = Query(...)):
+    item = await get_content(href, "")
+    if item is None:
+        raise HTTPException(404, "Entry not found")
+    return item
+
+
+@app.get("/api/tree/search")
+async def api_tree_search(
+    version: str = Query("2024"),
+    q: str = Query(...),
+    limit: int = Query(20),
+):
+    return {"items": await search_entries(version, q, limit)}
+
+
+@app.get("/api/tree/code-files")
+async def api_tree_code_files(limit: int = Query(20), offset: int = Query(0)):
+    return {"items": await get_code_files(limit, offset)}
+
+
+@app.get("/api/tree/code-file")
+async def api_tree_code_file(id: str = Query(...)):
+    item = await get_code_file(id)
+    if item is None:
+        raise HTTPException(404, "Code file not found")
+    return item
+
+
+@app.get("/api/tree/diffs")
+async def api_tree_diffs(
+    version_from: str = Query(...),
+    version_to: str = Query(...),
+    limit: int = Query(100),
+    offset: int = Query(0),
+):
+    items, total = await asyncio.gather(
+        get_version_diffs(version_from, version_to, limit, offset),
+        count_version_diffs(version_from, version_to),
+    )
+    return {"version_from": version_from, "version_to": version_to, "total": total, "items": items}
+
+
+@app.get("/api/tree/whatsnew")
+async def api_tree_whatsnew(version: str = Query(...)):
+    return {"version": version, "items": await get_whatsnew(version)}
 
 
 # ─── Chat endpoints ────────────────────────────────────────────────────────

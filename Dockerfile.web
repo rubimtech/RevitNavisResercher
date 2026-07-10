@@ -27,6 +27,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY web_app.py .
 COPY web_app/ web_app/
+COPY portable/ portable/
+COPY postgres/ postgres/
+COPY pg_migrate.py .
 COPY mcp_config.yaml .
 COPY static/ static/
 COPY .env .env
